@@ -1,6 +1,7 @@
 module Main where
 
-import Lib
+import Lib (launchBar)
+import RIO (IO)
 
 main :: IO ()
-main = someFunc
+main = launchBar
