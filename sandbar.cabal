@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 048f29c02f402f017a096734c6203292fc35783769430bc988b6ba18d474a0ad
+-- hash: 2ae3730b808c889d440ab2048df830ef99957790d90a054f90ce2a34bdb8c500
 
 name:           sandbar
 version:        0.1.0.0
@@ -48,6 +48,24 @@ executable sandbar-exe
       Paths_sandbar
   hs-source-dirs:
       app
+  default-extensions: NoImplicitPrelude
+  ghc-options: -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      X11
+    , base
+    , fsnotify
+    , rio
+    , sandbar
+    , unix
+  default-language: Haskell2010
+
+test-suite sandbar-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_sandbar
+  hs-source-dirs:
+      test
   default-extensions: NoImplicitPrelude
   ghc-options: -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   build-depends:
