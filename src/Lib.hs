@@ -7,7 +7,7 @@ where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
-  ( Atom,
+  (drawImageString, setBackground, setForeground, textExtents, textWidth, FontStruct, GC, Drawable, freeFont, freeGC, loadQueryFont, createGC,  Atom,
     Color (color_pixel),
     Colormap,
     Dimension,
@@ -49,10 +49,10 @@ import RIO
   ( Bool (False, True),
     Eq ((/=)),
     IO,
-    Integral,
+    Integral(div), 
     MVar,
     Monad (return),
-    Num ((+)),
+    Num((-), (+)),
     Semigroup ((<>)),
     String,
     const,
@@ -89,7 +89,7 @@ launchBar = do
     let cx = 0
         cy = 0
         cw = 1920
-        ch = 20
+        ch = 200
 
     let colorc = ColorCode "#0000DD"
 
@@ -99,6 +99,13 @@ launchBar = do
     setStruts (Rectangle cx cy cw ch) dpy win
 
     mapWindow dpy win
+
+    gc <- createGC dpy win
+    fontStruc <- loadQueryFont dpy "-*-Cascadia Code-*-*-*-*-10-*-*-*-*-*-*-*"
+    printString dpy win gc fontStruc "Hiiii"
+    freeGC dpy gc
+    freeFont dpy fontStruc
+
     sync dpy False
 
     return win
@@ -110,6 +117,30 @@ launchBar = do
     putStrLn "Hi"
     void $ watchDir mgr (homeDir </> ".config/plainbar") (const True) $ eventLoop winVar dpy scr rootw
     forever $ threadDelay 1000000
+
+printString :: Display 
+             -> Drawable 
+             -> GC
+             -> FontStruct
+             -> String
+             -> IO ()
+printString dpy d gc fontst str =
+    do let strLen = textWidth fontst str
+           (_,asc,_,_) = textExtents fontst str
+           valign = (100 + fromIntegral asc) `div` 2
+           remWidth = 200 - strLen
+           offset =  remWidth `div` 2
+       fgcolor <- initColora dpy "white"
+       bgcolor <- initColora dpy "blue"
+       setForeground dpy gc fgcolor
+       setBackground dpy gc bgcolor
+       drawImageString dpy d gc offset valign str
+
+initColora :: Display -> String -> IO Pixel
+initColora dpy color = do
+  let colormap = defaultColormap dpy (defaultScreen dpy)
+  (apros,real) <- allocNamedColor dpy colormap color
+  return $ color_pixel apros
 
 eventLoop :: MVar Window -> Display -> Screen -> Window -> Event -> IO ()
 eventLoop winVar dpy scr rootw event = do
