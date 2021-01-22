@@ -89,92 +89,37 @@ launchBar = do
       blackPxl = blackPixel disp scrNum
       whitePxl = whitePixel disp scrNum
       colormap = defaultColormap disp scrNum
-      visual   = defaultVisual disp scrNum
+      visual  = defaultVisual disp scrNum
 
-  rootWin <- rootWindow disp scrNum
-  toplevel <- createSimpleWindow disp rootWin 400 200 800 300 2 blackPxl whitePxl
-  mapWindow disp toplevel
-  pixmap <- createPixmap disp toplevel 400 100 8
+  rootw <- rootWindow disp scrNum
 
-  xftFont <- xftFontOpen disp scr "MonoLisa-30"
+  (win1, xftFont1, xftDraw1) <- do
+    let cx = 0
+        cy = 0
+        cw = 1920
+        ch = 30
 
-  xftDraw <- xftDrawCreate disp toplevel visual colormap
+    let colorc = ColorCode "#F0F0F0"
+    win <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
+    setProperties disp win
+    setStruts (Rectangle cx cy cw ch) disp win
+    mapWindow disp win
+    xftFont <- xftFontOpen disp scr "Iosevka Nerd Font Mono-10"
+    xftDraw <- xftDrawCreate disp win visual colormap
+    withXftColorName disp visual colormap "#FF0000" (\xftColor -> xftDrawString xftDraw xftColor xftFont 100 16 "abcdefg")
+    sync disp False
+    return (win, xftFont, xftDraw)
 
-  withXftColorName disp visual colormap "blue" (\xftColor -> xftDrawString xftDraw xftColor xftFont 100 50 "abcdefg")
+  winVar <- newMVar win1
 
-  sync disp False
+  withManager $ \mgr -> do
+    homeDir <- getHomeDirectory
+    putStrLn "Hi"
+    void $ watchDir mgr (homeDir </> ".config/plainbar") (const True) $ eventLoop winVar disp scr rootw
+    forever $ threadDelay 1000000
 
-  --dpy <- openDisplay ""
-  --let dflt = defaultScreen dpy
-  --    scr = defaultScreenOfDisplay dpy
-  --rootw <- rootWindow dpy dflt
-
-  --win1 <- do
-  --  let cx = 0
-  --      cy = 0
-  --      cw = 1920
-  --      ch = 200
-
-  --  let colorc = ColorCode "#0000DD"
-  --  let colormap = defaultColormap dpy (defaultScreen dpy)
-  --  --let visual = defaultVisualOfScreen scr
-
-  --  win <- mkUnmanagedWindow dpy scr rootw cx cy cw ch colorc
-
-  --  pixmap <- createPixmap dpy win 1920 200 8
-
-  --  setProperties dpy win
-  --  setStruts (Rectangle cx cy cw ch) dpy win
-
-  --  mapWindow dpy win
-
-  --  xftDraw <- xftDrawCreate dpy pixmap (defaultVisual dpy dflt) colormap
-  --  xftFont <- xftFontOpen dpy scr "MonoLisa"
-  --  xftLockFace xftFont
-
-  --  withXftColorValue dpy (defaultVisual dpy dflt) colormap (XRenderColor 1 1 1 0) (\xftColor -> xftDrawString xftDraw xftColor xftFont 100 100 "hi")
-
-  --  sync dpy False
-
-  --  forever $ threadDelay 1000000
-
-  --  xftFontClose dpy xftFont
-  --  xftDrawDestroy xftDraw
-
-  --  return win
-
-  forever $ threadDelay 1000000
-  -- winVar <- newMVar win1
-
-  -- withManager $ \mgr -> do
-  --   homeDir <- getHomeDirectory
-  --   putStrLn "Hi"
-  --   void $ watchDir mgr (homeDir </> ".config/plainbar") (const True) $ eventLoop winVar dpy scr rootw
-  --   forever $ threadDelay 1000000
-
-printString :: Display 
-             -> Drawable 
-             -> GC
-             -> FontStruct
-             -> String
-             -> IO ()
-printString dpy d gc fontst str =
-    do let strLen = textWidth fontst str
-           (_,asc,_,_) = textExtents fontst str
-           valign = (100 + fromIntegral asc) `div` 2
-           remWidth = 200 - strLen
-           offset =  remWidth `div` 2
-       fgcolor <- initColora dpy "white"
-       bgcolor <- initColora dpy "blue"
-       setForeground dpy gc fgcolor
-       setBackground dpy gc bgcolor
-       drawImageString dpy d gc offset valign str
-
-initColora :: Display -> String -> IO Pixel
-initColora dpy color = do
-  let colormap = defaultColormap dpy (defaultScreen dpy)
-  (apros,real) <- allocNamedColor dpy colormap color
-  return $ color_pixel apros
+  xftFontClose disp xftFont1
+  xftDrawDestroy xftDraw1
 
 eventLoop :: MVar Window -> Display -> Screen -> Window -> Event -> IO ()
 eventLoop winVar dpy scr rootw event = do
