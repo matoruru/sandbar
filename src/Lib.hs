@@ -7,7 +7,7 @@ where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
-  (drawImageString, setBackground, setForeground, textExtents, textWidth, FontStruct, GC, Drawable, freeFont, freeGC, loadQueryFont, createGC,  Atom,
+  (whitePixel, blackPixel, createSimpleWindow, defaultVisual, createPixmap, drawImageString, setBackground, setForeground, textExtents, textWidth, FontStruct, GC, Drawable, freeFont, freeGC, loadQueryFont, createGC,  Atom,
     Color (color_pixel),
     Colormap,
     Dimension,
@@ -39,7 +39,7 @@ import Graphics.X11
     wM_NAME,
   )
 import Graphics.X11.Xlib
-  ( Display,
+  (Display,
   )
 import Graphics.X11.Xlib.Extras
   ( changeProperty32,
@@ -74,49 +74,83 @@ import RIO
 import RIO.Directory (getHomeDirectory)
 import RIO.FilePath ((</>))
 import System.FSNotify (Event (Modified, Removed), watchDir, withManager)
-import System.IO (putStrLn, readFile)
+import System.IO (print, putStrLn, readFile)
+import Graphics.X11.Xft (xftLockFace, xftDrawDestroy, withXftColorName, xftDrawRect, xftInitFtLibrary, xftfont_max_advance_width, xftfont_height, xftFontClose, xftDrawColormap, xftDrawVisual, withXftColorValue, xftFontOpen, xftDrawCreateBitmap, xftDrawCreate, xftDrawString)
+import Graphics.X11.Xrender
 
 newtype ColorCode = ColorCode String
 
 launchBar :: IO ()
 launchBar = do
-  dpy <- openDisplay ""
-  let dflt = defaultScreen dpy
-      scr = defaultScreenOfDisplay dpy
-  rootw <- rootWindow dpy dflt
+  disp <- openDisplay ""
 
-  win1 <- do
-    let cx = 0
-        cy = 0
-        cw = 1920
-        ch = 200
+  let scrNum = defaultScreen disp
+      scr = defaultScreenOfDisplay disp
+      blackPxl = blackPixel disp scrNum
+      whitePxl = whitePixel disp scrNum
+      colormap = defaultColormap disp scrNum
+      visual   = defaultVisual disp scrNum
 
-    let colorc = ColorCode "#0000DD"
+  rootWin <- rootWindow disp scrNum
+  toplevel <- createSimpleWindow disp rootWin 400 200 800 300 2 blackPxl whitePxl
+  mapWindow disp toplevel
+  pixmap <- createPixmap disp toplevel 400 100 8
 
-    win <- mkUnmanagedWindow dpy scr rootw cx cy cw ch colorc
+  xftFont <- xftFontOpen disp scr "MonoLisa-30"
 
-    setProperties dpy win
-    setStruts (Rectangle cx cy cw ch) dpy win
+  xftDraw <- xftDrawCreate disp toplevel visual colormap
 
-    mapWindow dpy win
+  withXftColorName disp visual colormap "blue" (\xftColor -> xftDrawString xftDraw xftColor xftFont 100 50 "abcdefg")
 
-    gc <- createGC dpy win
-    fontStruc <- loadQueryFont dpy "-*-Cascadia Code-*-*-*-*-10-*-*-*-*-*-*-*"
-    printString dpy win gc fontStruc "Hiiii"
-    freeGC dpy gc
-    freeFont dpy fontStruc
+  sync disp False
 
-    sync dpy False
+  --dpy <- openDisplay ""
+  --let dflt = defaultScreen dpy
+  --    scr = defaultScreenOfDisplay dpy
+  --rootw <- rootWindow dpy dflt
 
-    return win
+  --win1 <- do
+  --  let cx = 0
+  --      cy = 0
+  --      cw = 1920
+  --      ch = 200
 
-  winVar <- newMVar win1
+  --  let colorc = ColorCode "#0000DD"
+  --  let colormap = defaultColormap dpy (defaultScreen dpy)
+  --  --let visual = defaultVisualOfScreen scr
 
-  withManager $ \mgr -> do
-    homeDir <- getHomeDirectory
-    putStrLn "Hi"
-    void $ watchDir mgr (homeDir </> ".config/plainbar") (const True) $ eventLoop winVar dpy scr rootw
-    forever $ threadDelay 1000000
+  --  win <- mkUnmanagedWindow dpy scr rootw cx cy cw ch colorc
+
+  --  pixmap <- createPixmap dpy win 1920 200 8
+
+  --  setProperties dpy win
+  --  setStruts (Rectangle cx cy cw ch) dpy win
+
+  --  mapWindow dpy win
+
+  --  xftDraw <- xftDrawCreate dpy pixmap (defaultVisual dpy dflt) colormap
+  --  xftFont <- xftFontOpen dpy scr "MonoLisa"
+  --  xftLockFace xftFont
+
+  --  withXftColorValue dpy (defaultVisual dpy dflt) colormap (XRenderColor 1 1 1 0) (\xftColor -> xftDrawString xftDraw xftColor xftFont 100 100 "hi")
+
+  --  sync dpy False
+
+  --  forever $ threadDelay 1000000
+
+  --  xftFontClose dpy xftFont
+  --  xftDrawDestroy xftDraw
+
+  --  return win
+
+  forever $ threadDelay 1000000
+  -- winVar <- newMVar win1
+
+  -- withManager $ \mgr -> do
+  --   homeDir <- getHomeDirectory
+  --   putStrLn "Hi"
+  --   void $ watchDir mgr (homeDir </> ".config/plainbar") (const True) $ eventLoop winVar dpy scr rootw
+  --   forever $ threadDelay 1000000
 
 printString :: Display 
              -> Drawable 
