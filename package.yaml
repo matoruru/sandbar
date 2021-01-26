@@ -23,6 +23,7 @@ dependencies:
   - base
   - rio
   - X11
+  - X11-xft
   - fsnotify
   - unix
 
