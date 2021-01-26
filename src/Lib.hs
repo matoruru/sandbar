@@ -7,7 +7,7 @@ where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
-  (whitePixel, blackPixel, createSimpleWindow, defaultVisual, createPixmap, drawImageString, setBackground, setForeground, textExtents, textWidth, FontStruct, GC, Drawable, freeFont, freeGC, loadQueryFont, createGC,  Atom,
+  (Visual, defaultColormapOfScreen, setForeground, createGC,  Atom,
     Color (color_pixel),
     Colormap,
     Dimension,
@@ -46,13 +46,13 @@ import Graphics.X11.Xlib.Extras
     propModeReplace,
   )
 import RIO
-  ( Bool (False, True),
+  (Integer,  Bool (False, True),
     Eq ((/=)),
     IO,
-    Integral(div), 
+    Integral,
     MVar,
     Monad (return),
-    Num((-), (+)),
+    Num((+)),
     Semigroup ((<>)),
     String,
     const,
@@ -74,9 +74,8 @@ import RIO
 import RIO.Directory (getHomeDirectory)
 import RIO.FilePath ((</>))
 import System.FSNotify (Event (Modified, Removed), watchDir, withManager)
-import System.IO (print, putStrLn, readFile)
-import Graphics.X11.Xft (xftLockFace, xftDrawDestroy, withXftColorName, xftDrawRect, xftInitFtLibrary, xftfont_max_advance_width, xftfont_height, xftFontClose, xftDrawColormap, xftDrawVisual, withXftColorValue, xftFontOpen, xftDrawCreateBitmap, xftDrawCreate, xftDrawString)
-import Graphics.X11.Xrender
+import System.IO (putStrLn, readFile)
+import Graphics.X11.Xft (XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
 
 newtype ColorCode = ColorCode String
 
@@ -86,31 +85,30 @@ launchBar = do
 
   let scrNum = defaultScreen disp
       scr = defaultScreenOfDisplay disp
-      blackPxl = blackPixel disp scrNum
-      whitePxl = whitePixel disp scrNum
-      colormap = defaultColormap disp scrNum
-      visual  = defaultVisual disp scrNum
+      colormap = defaultColormapOfScreen scr
+      visual  = defaultVisualOfScreen scr
 
   rootw <- rootWindow disp scrNum
 
-  (win1, xftFont1, xftDraw1) <- do
-    let cx = 0
-        cy = 0
-        cw = 1920
-        ch = 30
+  let cx = 0
+      cy = 0
+      cw = 1920
+      ch = 30
 
-    let colorc = ColorCode "#F0F0F0"
-    win <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
-    setProperties disp win
-    setStruts (Rectangle cx cy cw ch) disp win
-    mapWindow disp win
-    xftFont <- xftFontOpen disp scr "Iosevka Nerd Font Mono-10"
-    xftDraw <- xftDrawCreate disp win visual colormap
-    withXftColorName disp visual colormap "#FF0000" (\xftColor -> xftDrawString xftDraw xftColor xftFont 100 16 "abcdefg")
-    sync disp False
-    return (win, xftFont, xftDraw)
+  let colorc = ColorCode "#F0F0F0"
+  win <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
+  gc <- createGC disp win
+  setProperties disp win
+  setStruts (Rectangle cx cy cw ch) disp win
+  mapWindow disp win
+  xftFont <- xftFontOpen disp scr "Iosevka Nerd Font Mono-10"
+  xftDraw <- xftDrawCreate disp win visual colormap
+  xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode "#FF0000") xftFont 100 16 "Hiii"
+  fgcolor <- initColor disp colormap (ColorCode "#000000")
+  setForeground disp gc fgcolor
+  sync disp False
 
-  winVar <- newMVar win1
+  winVar <- newMVar win
 
   withManager $ \mgr -> do
     homeDir <- getHomeDirectory
@@ -118,8 +116,11 @@ launchBar = do
     void $ watchDir mgr (homeDir </> ".config/plainbar") (const True) $ eventLoop winVar disp scr rootw
     forever $ threadDelay 1000000
 
-  xftFontClose disp xftFont1
-  xftDrawDestroy xftDraw1
+  -- xftFontClose disp xftFont1
+  -- xftDrawDestroy xftDraw1
+
+xftDrawStringWithColorName :: Display -> Visual -> Colormap -> XftDraw -> ColorCode -> XftFont -> Integer -> Integer -> String -> IO ()
+xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode xftColor) xftFont x y str = withXftColorName disp visual colormap xftColor (\c -> xftDrawString xftDraw c xftFont x y str)
 
 eventLoop :: MVar Window -> Display -> Screen -> Window -> Event -> IO ()
 eventLoop winVar dpy scr rootw event = do
@@ -129,7 +130,7 @@ eventLoop winVar dpy scr rootw event = do
       destroyWindow dpy =<< takeMVar winVar
       win' <- do
         let cx = 0
-            cy = 0
+            cy = 80
             cw = 1920
             ch = 20
         config <- filter (/= '\n') <$> readFile path

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 2ae3730b808c889d440ab2048df830ef99957790d90a054f90ce2a34bdb8c500
+-- hash: faa72ed327cf0825f826493263d914147f55bbb967dd80e9670bb2897247a5bb
 
 name:           sandbar
 version:        0.1.0.0
@@ -36,6 +36,7 @@ library
   ghc-options: -Wall -Werror
   build-depends:
       X11
+    , X11-xft
     , base
     , fsnotify
     , rio
@@ -52,6 +53,7 @@ executable sandbar-exe
   ghc-options: -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       X11
+    , X11-xft
     , base
     , fsnotify
     , rio
@@ -70,6 +72,7 @@ test-suite sandbar-test
   ghc-options: -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       X11
+    , X11-xft
     , base
     , fsnotify
     , rio
