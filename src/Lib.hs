@@ -7,7 +7,7 @@ where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
-  (Visual, defaultColormapOfScreen, setForeground, createGC,  Atom,
+  (setForeground, fillRectangle, copyArea, createPixmap, Visual, defaultColormapOfScreen, createGC,  Atom,
     Color (color_pixel),
     Colormap,
     Dimension,
@@ -96,16 +96,72 @@ launchBar = do
       ch = 30
 
   let colorc = ColorCode "#F0F0F0"
+
+  -- Create a bar
   win <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
+
+  -- Create pixmap
+  pixmap <- createPixmap disp win cw ch (defaultDepthOfScreen scr)
+
+  -- Create GC
   gc <- createGC disp win
+
+  -- Create GC to reset the window
+  gc_clr <- createGC disp win
+
+  -- Set properties
   setProperties disp win
   setStruts (Rectangle cx cy cw ch) disp win
+
+  -- Set background to GC
+  bgColor <- initColor disp colormap colorc
+
+  -- Set background color with setForeground (because it's going to be filled by drawing rectangle)
+  setForeground disp gc bgColor
+  setForeground disp gc_clr bgColor
+
   mapWindow disp win
+
+  -- Clear pixmap
+  fillRectangle disp pixmap gc_clr cx cy cw ch
+
+  -- Set text to pixmap
   xftFont <- xftFontOpen disp scr "Iosevka Nerd Font Mono-10"
-  xftDraw <- xftDrawCreate disp win visual colormap
+  xftDraw <- xftDrawCreate disp pixmap visual colormap
   xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode "#FF0000") xftFont 100 16 "Hiii"
-  fgcolor <- initColor disp colormap (ColorCode "#000000")
-  setForeground disp gc fgcolor
+
+  -- Copy text pixmap to win
+  copyArea disp pixmap win gc cx cy cw ch 0 0
+
+  sync disp False
+
+
+  -- Draw rectangles with pixmap
+  threadDelay 1000000
+  bgColor' <- initColor disp colormap (ColorCode "#FF0000")
+  setForeground disp gc bgColor'
+  fillRectangle disp pixmap gc cx cy 800 20
+  bgColor'' <- initColor disp colormap (ColorCode "#FF00FF")
+  setForeground disp gc bgColor''
+  fillRectangle disp pixmap gc 900 10 80 10
+  copyArea disp pixmap win gc cx cy cw ch 0 0
+
+  sync disp False
+
+
+  -- Reset window with pixmap
+  threadDelay 1000000
+  fillRectangle disp pixmap gc_clr cx cy cw ch
+  copyArea disp pixmap win gc cx cy cw ch 0 0
+
+  sync disp False
+
+
+  threadDelay 1000000
+  setForeground disp gc bgColor''
+  fillRectangle disp pixmap gc 900 10 80 10
+  copyArea disp pixmap win gc cx cy cw ch 0 0
+
   sync disp False
 
   winVar <- newMVar win
