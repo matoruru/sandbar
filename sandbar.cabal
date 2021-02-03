@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: faa72ed327cf0825f826493263d914147f55bbb967dd80e9670bb2897247a5bb
+-- hash: 5360a4730613da3c60245782980357ead135d3c3f0dd959fa0784ad76d49fd38
 
 name:           sandbar
 version:        0.1.0.0
@@ -27,20 +27,26 @@ source-repository head
 
 library
   exposed-modules:
+      AtomName
+      Config
+      Core
+      DefaultConfig
       Lib
   other-modules:
       Paths_sandbar
   hs-source-dirs:
       src
   default-extensions: NoImplicitPrelude
-  ghc-options: -Wall -Werror
+  ghc-options: -Wall
   build-depends:
       X11
     , X11-xft
     , base
     , fsnotify
+    , mtl
     , rio
     , unix
+    , yaml
   default-language: Haskell2010
 
 executable sandbar-exe
@@ -50,15 +56,17 @@ executable sandbar-exe
   hs-source-dirs:
       app
   default-extensions: NoImplicitPrelude
-  ghc-options: -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       X11
     , X11-xft
     , base
     , fsnotify
+    , mtl
     , rio
     , sandbar
     , unix
+    , yaml
   default-language: Haskell2010
 
 test-suite sandbar-test
@@ -69,13 +77,15 @@ test-suite sandbar-test
   hs-source-dirs:
       test
   default-extensions: NoImplicitPrelude
-  ghc-options: -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       X11
     , X11-xft
     , base
     , fsnotify
+    , mtl
     , rio
     , sandbar
     , unix
+    , yaml
   default-language: Haskell2010

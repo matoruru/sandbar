@@ -26,13 +26,15 @@ dependencies:
   - X11-xft
   - fsnotify
   - unix
+  - yaml
+  - mtl
 
 default-extensions:
   - NoImplicitPrelude
 
 ghc-options:
   - -Wall
-  - -Werror
+    #- -Werror
 
 library:
   source-dirs: src
