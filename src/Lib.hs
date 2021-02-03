@@ -1,5 +1,3 @@
-{-# LANGUAGE BlockArguments #-}
-
 module Lib
   ( launchBar,
   )
@@ -7,7 +5,7 @@ where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
-  (setForeground, fillRectangle, copyArea, createPixmap, Visual, defaultColormapOfScreen, createGC,  Atom,
+  (moveResizeWindow, setForeground, fillRectangle, copyArea, createPixmap, Visual, defaultColormapOfScreen, createGC,
     Color (color_pixel),
     Colormap,
     Dimension,
@@ -28,7 +26,6 @@ import Graphics.X11
     defaultVisualOfScreen,
     destroyWindow,
     inputOutput,
-    internAtom,
     mapWindow,
     openDisplay,
     rootWindow,
@@ -42,11 +39,11 @@ import Graphics.X11.Xlib
   (Display,
   )
 import Graphics.X11.Xlib.Extras
-  ( changeProperty32,
+  (unmapWindow,  changeProperty32,
     propModeReplace,
   )
 import RIO
-  (Integer,  Bool (False, True),
+  (id, Either, Maybe, Integer,  Bool (False, True),
     Eq ((/=)),
     IO,
     Integral,
@@ -74,13 +71,26 @@ import RIO
 import RIO.Directory (getHomeDirectory)
 import RIO.FilePath ((</>))
 import System.FSNotify (Event (Modified, Removed), watchDir, withManager)
-import System.IO (putStrLn, readFile)
+import System.IO (print, putStrLn, readFile)
 import Graphics.X11.Xft (XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
+import AtomName (mkAtom, _CARDINAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _ATOM, _NET_WM_STRUT_PARTIAL, _NET_WM_WINDOW_TYPE_DOCK)
+import Data.Yaml (ParseException, decodeFileEither)
+import Config (bar, Bar(..), Config)
+import Data.Either (Either(Right, Left))
+import Control.Exception (throwIO)
 
 newtype ColorCode = ColorCode String
 
 launchBar :: IO ()
 launchBar = do
+  eConfig <- decodeFileEither "/home/matoruru/.config/plainbar/config.yaml" :: IO (Either ParseException Config)
+
+  case eConfig of
+    Right config -> launchBar' config
+    Left e -> throwIO e
+
+launchBar' :: Config -> IO ()
+launchBar' config = do
   disp <- openDisplay ""
 
   let scrNum = defaultScreen disp
@@ -90,10 +100,11 @@ launchBar = do
 
   rootw <- rootWindow disp scrNum
 
-  let cx = 0
-      cy = 0
-      cw = 1920
-      ch = 30
+  let bar' = bar config
+      cx = x_pos bar'
+      cy = y_pos bar'
+      cw = width bar'
+      ch = height bar'
 
   let colorc = ColorCode "#F0F0F0"
 
@@ -162,6 +173,19 @@ launchBar = do
   fillRectangle disp pixmap gc 900 10 80 10
   copyArea disp pixmap win gc cx cy cw ch 0 0
 
+  sync disp False
+
+  threadDelay 1000000
+
+  destroyWindow disp win
+  sync disp False
+  threadDelay 1000000
+
+  win1 <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
+  setProperties disp win1
+  setStruts (Rectangle cx cy cw ch) disp win1
+  moveResizeWindow disp win1 cx cy cw ch
+  mapWindow disp win1
   sync disp False
 
   winVar <- newMVar win
@@ -252,19 +276,6 @@ setProperties dpy win = do
   wtype <- mkAtom dpy _NET_WM_WINDOW_TYPE
   dock <- mkAtom dpy _NET_WM_WINDOW_TYPE_DOCK
   changeProperty32 dpy win wtype atom propModeReplace [fi dock]
-
-newtype AtomName = AtomName String
-
-_NET_WM_STRUT_PARTIAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _NET_WM_WINDOW_TYPE_DOCK, _ATOM, _CARDINAL :: AtomName
-_NET_WM_STRUT_PARTIAL = AtomName "_NET_WM_STRUT_PARTIAL"
-_NET_WM_STRUT = AtomName "_NET_WM_STRUT"
-_NET_WM_WINDOW_TYPE = AtomName "_NET_WM_WINDOW_TYPE"
-_NET_WM_WINDOW_TYPE_DOCK = AtomName "_NET_WM_WINDOW_TYPE_DOCK"
-_ATOM = AtomName "ATOM"
-_CARDINAL = AtomName "CARDINAL"
-
-mkAtom :: Display -> AtomName -> IO Atom
-mkAtom dpy (AtomName name) = internAtom dpy name False
 
 fi :: (Integral a, Num b) => a -> b
 fi = fromIntegral
