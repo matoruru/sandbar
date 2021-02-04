@@ -28,6 +28,7 @@ dependencies:
   - unix
   - yaml
   - mtl
+  - pretty-simple
 
 default-extensions:
   - NoImplicitPrelude

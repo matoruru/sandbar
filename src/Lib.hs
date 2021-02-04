@@ -1,3 +1,5 @@
+{-# LANGUAGE BlockArguments #-}
+
 module Lib
   ( launchBar,
   )
@@ -28,29 +30,27 @@ import Graphics.X11
     inputOutput,
     mapWindow,
     openDisplay,
-    rootWindow,
     setTextProperty,
     set_background_pixel,
-    set_override_redirect,
     sync,
     wM_NAME,
   )
+import qualified Graphics.X11 ( rootWindow )
 import Graphics.X11.Xlib
   (Display,
   )
 import Graphics.X11.Xlib.Extras
-  (unmapWindow,  changeProperty32,
+  (changeProperty32,
     propModeReplace,
   )
 import RIO
-  (id, Either, Maybe, Integer,  Bool (False, True),
+  (Semigroup((<>)), Integer,  Bool (False, True),
     Eq ((/=)),
     IO,
     Integral,
     MVar,
     Monad (return),
     Num((+)),
-    Semigroup ((<>)),
     String,
     const,
     filter,
@@ -71,23 +71,86 @@ import RIO
 import RIO.Directory (getHomeDirectory)
 import RIO.FilePath ((</>))
 import System.FSNotify (Event (Modified, Removed), watchDir, withManager)
-import System.IO (print, putStrLn, readFile)
+import System.IO (putStrLn, readFile)
 import Graphics.X11.Xft (XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
 import AtomName (mkAtom, _CARDINAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _ATOM, _NET_WM_STRUT_PARTIAL, _NET_WM_WINDOW_TYPE_DOCK)
-import Data.Yaml (ParseException, decodeFileEither)
+import Data.Yaml (decodeFileEither)
 import Config (bar, Bar(..), Config)
-import Data.Either (Either(Right, Left))
 import Control.Exception (throwIO)
+import Core (runSandbarIO, SandbarIO)
+import Context (Context(..), X11Info(..))
+import Control.Monad.Except (MonadError(catchError), runExceptT, liftEither)
+import Control.Monad.IO.Class (MonadIO(liftIO))
+import Text.Pretty.Simple (pPrint)
 
 newtype ColorCode = ColorCode String
 
 launchBar :: IO ()
 launchBar = do
-  eConfig <- decodeFileEither "/home/matoruru/.config/plainbar/config.yaml" :: IO (Either ParseException Config)
+  homeDir <- getHomeDirectory
+  eConfig <- decodeFileEither $ homeDir </> ".config/sandbar/config.yaml"
+  void $ runExceptT do
+    (do
+       config' <- liftEither eConfig
+       x11Info' <- liftIO $ getX11Info config'
+       let context = Context
+             { config = config'
+             , x11Info = x11Info'
+             }
+       pPrint context
+       liftIO $ runSandbar context
+     ) `catchError` (\e -> do
+       liftIO $ throwIO e
+     )
 
-  case eConfig of
-    Right config -> launchBar' config
-    Left e -> throwIO e
+runSandbar :: Context -> IO ()
+runSandbar = runSandbarIO launchFirstbar
+
+launchFirstbar :: SandbarIO ()
+launchFirstbar = return ()
+
+getX11Info :: Config -> IO X11Info
+getX11Info config = do
+  disp <- openDisplay ""
+
+  let scrNum = defaultScreen disp
+      scr = defaultScreenOfDisplay disp
+      colormap = defaultColormapOfScreen scr
+      visual  = defaultVisualOfScreen scr
+
+      bar' = bar config
+      cx = x_pos bar'
+      cy = y_pos bar'
+      cw = width bar'
+      ch = height bar'
+
+      colorc = ColorCode "#F0F0F0"
+
+  rootw <- Graphics.X11.rootWindow disp scrNum
+
+  -- Create a bar
+  win <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
+
+  pixmap <- createPixmap disp win cw ch (defaultDepthOfScreen scr)
+
+  -- Create GC
+  gc <- createGC disp win
+
+  -- Create GC to reset the window
+  gc_clr <- createGC disp win
+
+  return $ X11Info
+    { display = disp
+    , screenNumber = scrNum
+    , rootWindow = rootw
+    , colormap = colormap
+    , visual = visual
+    , screen = scr
+    , window = win
+    , pixmap = pixmap
+    , gc = gc
+    , gc_clr = gc_clr
+    }
 
 launchBar' :: Config -> IO ()
 launchBar' config = do
@@ -98,7 +161,7 @@ launchBar' config = do
       colormap = defaultColormapOfScreen scr
       visual  = defaultVisualOfScreen scr
 
-  rootw <- rootWindow disp scrNum
+  rootw <- Graphics.X11.rootWindow disp scrNum
 
   let bar' = bar config
       cx = x_pos bar'
@@ -193,7 +256,7 @@ launchBar' config = do
   withManager $ \mgr -> do
     homeDir <- getHomeDirectory
     putStrLn "Hi"
-    void $ watchDir mgr (homeDir </> ".config/plainbar") (const True) $ eventLoop winVar disp scr rootw
+    void $ watchDir mgr (homeDir </> ".config/sandbar") (const True) $ eventLoop winVar disp scr rootw
     forever $ threadDelay 1000000
 
   -- xftFontClose disp xftFont1
@@ -245,7 +308,6 @@ mkUnmanagedWindow dpy scr rw x y w h colorc = do
       attrmask = cWOverrideRedirect .|. cWBackPixel
       colormap = defaultColormap dpy (defaultScreen dpy)
   allocaSetWindowAttributes $ \attributes -> do
-    set_override_redirect attributes True
     set_background_pixel attributes =<< initColor dpy colormap colorc
     createWindow dpy rw x y w h 0 (defaultDepthOfScreen scr) inputOutput visual attrmask attributes
 
@@ -272,7 +334,7 @@ setStruts (Rectangle cx cy cw ch) dpy win = do
 setProperties :: Display -> Window -> IO ()
 setProperties dpy win = do
   atom <- mkAtom dpy _ATOM
-  setTextProperty dpy win "plainbar" wM_NAME
+  setTextProperty dpy win "sandbar" wM_NAME
   wtype <- mkAtom dpy _NET_WM_WINDOW_TYPE
   dock <- mkAtom dpy _NET_WM_WINDOW_TYPE_DOCK
   changeProperty32 dpy win wtype atom propModeReplace [fi dock]

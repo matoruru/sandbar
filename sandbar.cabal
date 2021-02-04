@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 5360a4730613da3c60245782980357ead135d3c3f0dd959fa0784ad76d49fd38
+-- hash: 6834a3bbca3c87a7f9223e5d9d51e5e6a5b2ca67db38e0d249e6fd85411f4e15
 
 name:           sandbar
 version:        0.1.0.0
@@ -29,6 +29,7 @@ library
   exposed-modules:
       AtomName
       Config
+      Context
       Core
       DefaultConfig
       Lib
@@ -44,6 +45,7 @@ library
     , base
     , fsnotify
     , mtl
+    , pretty-simple
     , rio
     , unix
     , yaml
@@ -63,6 +65,7 @@ executable sandbar-exe
     , base
     , fsnotify
     , mtl
+    , pretty-simple
     , rio
     , sandbar
     , unix
@@ -84,6 +87,7 @@ test-suite sandbar-test
     , base
     , fsnotify
     , mtl
+    , pretty-simple
     , rio
     , sandbar
     , unix
