@@ -64,6 +64,7 @@ import RIO
     threadDelay,
     void,
     ($),
+    (-),
     (.),
     (<$>),
     (=<<),
@@ -74,40 +75,109 @@ import System.FSNotify (Event (Modified, Removed), watchDir, withManager)
 import System.IO (putStrLn, readFile)
 import Graphics.X11.Xft (XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
 import AtomName (mkAtom, _CARDINAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _ATOM, _NET_WM_STRUT_PARTIAL, _NET_WM_WINDOW_TYPE_DOCK)
-import Data.Yaml (decodeFileEither)
-import Config (bar, Bar(..), Config)
+import Data.Yaml (ParseException, decodeFileEither)
+import Config (Config(Config), Bar(Bar))
+import qualified Config
 import Control.Exception (throwIO)
 import Core (runSandbarIO, SandbarIO)
-import Context (Context(..), X11Info(..))
 import Control.Monad.Except (MonadError(catchError), runExceptT, liftEither)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
+import Data.Either (Either)
+import Context (Context(Context), X11Info(X11Info))
+import qualified Context
+import Control.Monad.State (gets)
+import Control.Monad.Reader (asks)
+import Control.Concurrent (forkIO)
+import RIO.FilePath (FilePath)
 
 newtype ColorCode = ColorCode String
 
+configDirName :: FilePath
+configDirName = ".config/sandbar"
+
+configFileName :: FilePath
+configFileName = "config.yaml"
+
+getConfig :: IO (Either ParseException Config.Config)
+getConfig = do
+  homeDir <- getHomeDirectory
+  decodeFileEither $ homeDir </> configDirName </> configFileName
+
 launchBar :: IO ()
 launchBar = do
-  homeDir <- getHomeDirectory
-  eConfig <- decodeFileEither $ homeDir </> ".config/sandbar/config.yaml"
+  eConfig <- getConfig
+
   void $ runExceptT do
     (do
-       config' <- liftEither eConfig
-       x11Info' <- liftIO $ getX11Info config'
+       config <- liftEither eConfig
+       x11Info <- liftIO $ getX11Info config
        let context = Context
-             { config = config'
-             , x11Info = x11Info'
+             { Context.config = config
+             , Context.x11Info = x11Info
              }
        pPrint context
-       liftIO $ runSandbar context
+       liftIO $ runSandbarIO launchFirstbar context
      ) `catchError` (\e -> do
        liftIO $ throwIO e
      )
 
-runSandbar :: Context -> IO ()
-runSandbar = runSandbarIO launchFirstbar
+  withManager $ \mgr -> do
+    homeDir <- getHomeDirectory
+    void $ watchDir mgr (homeDir </> configDirName) (const True) $ eventLoop winVar disp scr rootw
+    forever $ threadDelay 1000000
+
+  forever do
+    threadDelay 1000000
+    return ()
 
 launchFirstbar :: SandbarIO ()
-launchFirstbar = return ()
+launchFirstbar = do
+  config <- asks Context.config
+  x11Info <- asks Context.x11Info
+
+  let
+    bar = Config.bar config
+    cx = Config.x_pos bar
+    cy = Config.y_pos bar
+    cw = Config.width bar
+    ch = Config.height bar
+
+  let
+    disp = Context.display x11Info
+    win = Context.window x11Info
+    colormap = Context.colormap x11Info
+    gc = Context.gc x11Info
+    scr = Context.screen x11Info
+    pixmap = Context.pixmap x11Info
+    visual = Context.visual x11Info
+
+  let colorc = ColorCode "#D00000"
+
+  liftIO do
+    -- Set properties
+    setProperties disp win
+    setStruts (Rectangle cx cy cw ch) disp win
+
+    -- Set background to GC
+    bgColor <- initColor disp colormap colorc
+
+    setForeground disp gc bgColor
+
+    -- Clear pixmap
+    fillRectangle disp pixmap gc cx cy cw ch
+
+    mapWindow disp win
+
+    -- Set text to pixmap
+    xftFont <- xftFontOpen disp scr "Iosevka Nerd Font Mono-10"
+    xftDraw <- xftDrawCreate disp pixmap visual colormap
+    xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode "#0000FF") xftFont 100 16 "Hiii"
+
+    -- Copy text pixmap to win
+    copyArea disp pixmap win gc cx cy cw ch 0 0
+
+    sync disp False
 
 getX11Info :: Config -> IO X11Info
 getX11Info config = do
@@ -118,11 +188,11 @@ getX11Info config = do
       colormap = defaultColormapOfScreen scr
       visual  = defaultVisualOfScreen scr
 
-      bar' = bar config
-      cx = x_pos bar'
-      cy = y_pos bar'
-      cw = width bar'
-      ch = height bar'
+      bar = Config.bar config
+      cx = Config.x_pos bar
+      cy = Config.y_pos bar
+      cw = Config.width bar
+      ch = Config.height bar
 
       colorc = ColorCode "#F0F0F0"
 
@@ -131,7 +201,7 @@ getX11Info config = do
   -- Create a bar
   win <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
 
-  pixmap <- createPixmap disp win cw ch (defaultDepthOfScreen scr)
+  pixmap <- createPixmap disp win (fi cx + cw) (fi cy + ch) (defaultDepthOfScreen scr)
 
   -- Create GC
   gc <- createGC disp win
@@ -140,20 +210,20 @@ getX11Info config = do
   gc_clr <- createGC disp win
 
   return $ X11Info
-    { display = disp
-    , screenNumber = scrNum
-    , rootWindow = rootw
-    , colormap = colormap
-    , visual = visual
-    , screen = scr
-    , window = win
-    , pixmap = pixmap
-    , gc = gc
-    , gc_clr = gc_clr
+    { Context.display = disp
+    , Context.screenNumber = scrNum
+    , Context.rootWindow = rootw
+    , Context.colormap = colormap
+    , Context.visual = visual
+    , Context.screen = scr
+    , Context.window = win
+    , Context.pixmap = pixmap
+    , Context.gc = gc
+    , Context.gc_clr = gc_clr
     }
 
 launchBar' :: Config -> IO ()
-launchBar' config = do
+launchBar' config' = do
   disp <- openDisplay ""
 
   let scrNum = defaultScreen disp
@@ -163,11 +233,11 @@ launchBar' config = do
 
   rootw <- Graphics.X11.rootWindow disp scrNum
 
-  let bar' = bar config
-      cx = x_pos bar'
-      cy = y_pos bar'
-      cw = width bar'
-      ch = height bar'
+  let bar' = Config.bar config'
+      cx = Config.x_pos bar'
+      cy = Config.y_pos bar'
+      cw = Config.width bar'
+      ch = Config.height bar'
 
   let colorc = ColorCode "#F0F0F0"
 
