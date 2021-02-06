@@ -2,7 +2,7 @@
 
 module Config where
 
-import RIO (Show, Generic)
+import RIO (String, Show, Generic)
 import Data.Yaml (FromJSON)
 import Graphics.X11 (Position)
 import GHC.Word (Word32)
@@ -30,6 +30,9 @@ data Bar = Bar
   , y_pos :: Position
   , width :: Word32
   , height :: Word32
+  , background_color :: String
+  , font :: String
+  , font_color :: String
   } deriving (Show, Generic)
 
 instance FromJSON Bar
