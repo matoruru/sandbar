@@ -89,6 +89,7 @@ import RIO.FilePath (FilePath)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
 import Data.Maybe (fromMaybe, Maybe(Nothing, Just))
+import Control.Monad (forM_)
 
 newtype ColorCode = ColorCode String
 
@@ -196,17 +197,8 @@ drawSandbar = do
     cw = Config.width bar
     ch = Config.height bar
     background_color = Config.background_color bar
-    text = Config.text bar
-    font = Config.font bar
-    font_color = Config.font_color bar
-    font_x_pos = Config.font_x_pos bar
-    font_y_pos = Config.font_y_pos bar
-    rectangle= Config.rectangle bar
-    rectangle_x_pos = Config.rectangle_x_pos rectangle
-    rectangle_y_pos = Config.rectangle_y_pos rectangle
-    rectangle_width = Config.rectangle_width rectangle
-    rectangle_height = Config.rectangle_height rectangle
-    rectangle_color = Config.rectangle_color rectangle
+    texts = Config.text bar
+    rectangles = Config.rectangle bar
 
   let
     disp = X11InfoR.display x11InfoR
@@ -223,8 +215,6 @@ drawSandbar = do
 
     mDefaultColor <- initColor disp colormap (ColorCode "black")
 
-    pixmapRec <- createPixmap disp win rectangle_width rectangle_height (defaultDepthOfScreen scr)
-
     case mDefaultColor of
       Nothing -> return ()
       Just defaultColor -> do
@@ -234,15 +224,33 @@ drawSandbar = do
         mapWindow disp win
 
         -- Rectangle
-        bgColor' <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
-        setForeground disp gc bgColor'
-        fillRectangle disp pixmapRec gc 0 0 rectangle_width rectangle_height
-        copyArea disp pixmapRec win gc cx cy rectangle_width rectangle_height rectangle_x_pos rectangle_y_pos
+        -- TODO: it's not relative to position of bar, it's absolute. so it's not show up when bar's y is different.
+        forM_ rectangles \rectangle -> do
+          let
+            rectangle_x_pos = Config.rectangle_x_pos rectangle
+            rectangle_y_pos = Config.rectangle_y_pos rectangle
+            rectangle_width = Config.rectangle_width rectangle
+            rectangle_height = Config.rectangle_height rectangle
+            rectangle_color = Config.rectangle_color rectangle
+
+          pixmapRec <- createPixmap disp win rectangle_width rectangle_height (defaultDepthOfScreen scr)
+          bgColor' <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
+          setForeground disp gc bgColor'
+          fillRectangle disp pixmapRec gc 0 0 rectangle_width rectangle_height
+          copyArea disp pixmapRec win gc cx cy rectangle_width rectangle_height rectangle_x_pos rectangle_y_pos
 
     -- Set text to window
-    xftFont <- xftFontOpen disp scr font
-    xftDraw <- xftDrawCreate disp win visual colormap
-    xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode font_color) xftFont font_x_pos font_y_pos text
+    forM_ texts \text -> do
+      let
+        text_value = Config.text_value text
+        text_font = Config.text_font text
+        font_color = Config.text_color text
+        font_x_pos = Config.text_x_pos text
+        font_y_pos = Config.text_y_pos text
+
+      xftFont <- xftFontOpen disp scr text_font
+      xftDraw <- xftDrawCreate disp win visual colormap
+      xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode font_color) xftFont font_x_pos font_y_pos text_value
 
     sync disp False
 
