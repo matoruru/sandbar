@@ -4,7 +4,7 @@ module Lib where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
-  (set_override_redirect, moveResizeWindow, setForeground, fillRectangle, copyArea, createPixmap, Visual, defaultColormapOfScreen, createGC,
+  (setBackground, setWindowBackground, set_override_redirect, moveResizeWindow, setForeground, fillRectangle, copyArea, createPixmap, Visual, defaultColormapOfScreen, createGC,
     Color (color_pixel),
     Colormap,
     Dimension,
@@ -214,7 +214,6 @@ drawSandbar = do
     win = X11InfoRW.window x11InfoRW
     colormap = X11InfoRW.colormap x11InfoRW
     gc = X11InfoRW.gc x11InfoRW
-    pixmap = X11InfoRW.pixmap x11InfoRW
     visual = X11InfoRW.visual x11InfoRW
 
   liftIO do
@@ -224,29 +223,26 @@ drawSandbar = do
 
     mDefaultColor <- initColor disp colormap (ColorCode "black")
 
+    pixmapRec <- createPixmap disp win rectangle_width rectangle_height (defaultDepthOfScreen scr)
+
     case mDefaultColor of
       Nothing -> return ()
       Just defaultColor -> do
-        -- Background (This background actually is just a rectangle now.
-        --             It should be separated with actual window size and its background.)
         bgColor <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode background_color)
-        setForeground disp gc bgColor
-        fillRectangle disp pixmap gc cx cy cw ch
+        setWindowBackground disp win bgColor
+
+        mapWindow disp win
 
         -- Rectangle
         bgColor' <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
         setForeground disp gc bgColor'
-        fillRectangle disp pixmap gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
+        fillRectangle disp pixmapRec gc 0 0 rectangle_width rectangle_height
+        copyArea disp pixmapRec win gc cx cy rectangle_width rectangle_height rectangle_x_pos rectangle_y_pos
 
-    mapWindow disp win
-
-    -- Set text to pixmap
+    -- Set text to window
     xftFont <- xftFontOpen disp scr font
-    xftDraw <- xftDrawCreate disp pixmap visual colormap
+    xftDraw <- xftDrawCreate disp win visual colormap
     xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode font_color) xftFont font_x_pos font_y_pos text
-
-    -- Copy text pixmap to win
-    copyArea disp pixmap win gc cx cy cw ch 0 0
 
     sync disp False
 
