@@ -1,9 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 
-module Lib
-  ( launchBar,
-  )
-where
+module Lib where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
@@ -49,7 +46,7 @@ import RIO
     Integral,
     MVar,
     Monad (return),
-    Num((+)),
+    Num((-), (+)),
     String,
     const,
     forever,
@@ -91,6 +88,7 @@ import Control.Concurrent (forkIO)
 import RIO.FilePath (FilePath)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
+import Data.Maybe (fromMaybe, Maybe(Nothing, Just))
 
 newtype ColorCode = ColorCode String
 
@@ -198,8 +196,17 @@ drawSandbar = do
     cw = Config.width bar
     ch = Config.height bar
     background_color = Config.background_color bar
+    text = Config.text bar
     font = Config.font bar
     font_color = Config.font_color bar
+    font_x_pos = Config.font_x_pos bar
+    font_y_pos = Config.font_y_pos bar
+    rectangle= Config.rectangle bar
+    rectangle_x_pos = Config.rectangle_x_pos rectangle
+    rectangle_y_pos = Config.rectangle_y_pos rectangle
+    rectangle_width = Config.rectangle_width rectangle
+    rectangle_height = Config.rectangle_height rectangle
+    rectangle_color = Config.rectangle_color rectangle
 
   let
     disp = X11InfoR.display x11InfoR
@@ -210,27 +217,33 @@ drawSandbar = do
     pixmap = X11InfoRW.pixmap x11InfoRW
     visual = X11InfoRW.visual x11InfoRW
 
-  let colorc = ColorCode background_color
-
   liftIO do
     -- Set properties
     setProperties disp win
     setStruts (Rectangle cx cy cw ch) disp win
 
-    -- Set background to GC
-    bgColor <- initColor disp colormap colorc
+    mDefaultColor <- initColor disp colormap (ColorCode "black")
 
-    setForeground disp gc bgColor
+    case mDefaultColor of
+      Nothing -> return ()
+      Just defaultColor -> do
+        -- Background (This background actually is just a rectangle now.
+        --             It should be separated with actual window size and its background.)
+        bgColor <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode background_color)
+        setForeground disp gc bgColor
+        fillRectangle disp pixmap gc cx cy cw ch
 
-    -- Clear pixmap
-    fillRectangle disp pixmap gc cx cy cw ch
+        -- Rectangle
+        bgColor' <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
+        setForeground disp gc bgColor'
+        fillRectangle disp pixmap gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
 
     mapWindow disp win
 
     -- Set text to pixmap
     xftFont <- xftFontOpen disp scr font
     xftDraw <- xftDrawCreate disp pixmap visual colormap
-    xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode font_color) xftFont 100 16 "Hiii"
+    xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode font_color) xftFont font_x_pos font_y_pos text
 
     -- Copy text pixmap to win
     copyArea disp pixmap win gc cx cy cw ch 0 0
@@ -288,108 +301,6 @@ getX11InfoRW config x11InfoR = do
     , X11InfoRW.gc_clr = gc_clr
     }
 
-launchBar' :: Config -> IO ()
-launchBar' config' = do
-  disp <- openDisplay ""
-
-  let scrNum = defaultScreen disp
-      scr = defaultScreenOfDisplay disp
-      colormap = defaultColormapOfScreen scr
-      visual  = defaultVisualOfScreen scr
-
-  rootw <- Graphics.X11.rootWindow disp scrNum
-
-  let bar' = Config.bar config'
-      cx = Config.x_pos bar'
-      cy = Config.y_pos bar'
-      cw = Config.width bar'
-      ch = Config.height bar'
-
-  let colorc = ColorCode "#F0F0F0"
-
-  -- Create a bar
-  win <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
-
-  -- Create pixmap
-  pixmap <- createPixmap disp win cw ch (defaultDepthOfScreen scr)
-
-  -- Create GC
-  gc <- createGC disp win
-
-  -- Create GC to reset the window
-  gc_clr <- createGC disp win
-
-  -- Set properties
-  setProperties disp win
-  setStruts (Rectangle cx cy cw ch) disp win
-
-  -- Set background to GC
-  bgColor <- initColor disp colormap colorc
-
-  -- Set background color with setForeground (because it's going to be filled by drawing rectangle)
-  setForeground disp gc bgColor
-  setForeground disp gc_clr bgColor
-
-  mapWindow disp win
-
-  -- Clear pixmap
-  fillRectangle disp pixmap gc_clr cx cy cw ch
-
-  -- Set text to pixmap
-  xftFont <- xftFontOpen disp scr "Iosevka Nerd Font Mono-10"
-  xftDraw <- xftDrawCreate disp pixmap visual colormap
-  xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode "#FF0000") xftFont 100 16 "Hiii"
-
-  -- Copy text pixmap to win
-  copyArea disp pixmap win gc cx cy cw ch 0 0
-
-  sync disp False
-
-
-  -- Draw rectangles with pixmap
-  threadDelay maxBound
-  bgColor' <- initColor disp colormap (ColorCode "#FF0000")
-  setForeground disp gc bgColor'
-  fillRectangle disp pixmap gc cx cy 800 20
-  bgColor'' <- initColor disp colormap (ColorCode "#FF00FF")
-  setForeground disp gc bgColor''
-  fillRectangle disp pixmap gc 900 10 80 10
-  copyArea disp pixmap win gc cx cy cw ch 0 0
-
-  sync disp False
-
-
-  -- Reset window with pixmap
-  threadDelay maxBound
-  fillRectangle disp pixmap gc_clr cx cy cw ch
-  copyArea disp pixmap win gc cx cy cw ch 0 0
-
-  sync disp False
-
-
-  threadDelay maxBound
-  setForeground disp gc bgColor''
-  fillRectangle disp pixmap gc 900 10 80 10
-  copyArea disp pixmap win gc cx cy cw ch 0 0
-
-  sync disp False
-
-  threadDelay maxBound
-
-  destroyWindow disp win
-  sync disp False
-  threadDelay maxBound
-
-  win1 <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
-  setProperties disp win1
-  setStruts (Rectangle cx cy cw ch) disp win1
-  moveResizeWindow disp win1 cx cy cw ch
-  mapWindow disp win1
-  sync disp False
-
-  -- xftFontClose disp xftFont1
-  -- xftDrawDestroy xftDraw1
-
 xftDrawStringWithColorName :: Display -> Visual -> Colormap -> XftDraw -> ColorCode -> XftFont -> Integer -> Integer -> String -> IO ()
 xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode xftColor) xftFont x y str = withXftColorName disp visual colormap xftColor (\c -> xftDrawString xftDraw c xftFont x y str)
 
@@ -409,11 +320,19 @@ mkUnmanagedWindow dpy scr rw x y w h colorc = do
       colormap = defaultColormap dpy (defaultScreen dpy)
   allocaSetWindowAttributes $ \attributes -> do
     set_override_redirect attributes True
-    set_background_pixel attributes =<< initColor dpy colormap colorc
+    mColor <- initColor dpy colormap colorc
+    _ <- case mColor of
+      Just color -> set_background_pixel attributes color
+      Nothing -> set_background_pixel attributes =<< getDefaultColor dpy colormap
     createWindow dpy rw x y w h 0 (defaultDepthOfScreen scr) inputOutput visual attrmask attributes
 
-initColor :: Display -> Colormap -> ColorCode -> IO Pixel
-initColor dpy colormap (ColorCode color) = color_pixel . fst <$> allocNamedColor dpy colormap color
+initColor :: Display -> Colormap -> ColorCode -> IO (Maybe Pixel)
+initColor dpy colormap (ColorCode color) = do
+  ( Just . color_pixel . fst <$> allocNamedColor dpy colormap color
+   ) `catchError` const (return Nothing)
+
+getDefaultColor :: Display -> Colormap -> IO Pixel
+getDefaultColor dpy colormap = color_pixel . fst <$> allocNamedColor dpy colormap "#606060"
 
 getStaticStrutValues :: Num a => a -> a -> a -> a -> [a]
 getStaticStrutValues cx cy cw ch =
