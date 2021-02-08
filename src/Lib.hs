@@ -4,7 +4,7 @@ module Lib where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
-  (setBackground, setWindowBackground, set_override_redirect, moveResizeWindow, setForeground, fillRectangle, copyArea, createPixmap, Visual, defaultColormapOfScreen, createGC,
+  (setWindowBackground, set_override_redirect, setForeground, fillRectangle, Visual, defaultColormapOfScreen, createGC,
     Color (color_pixel),
     Colormap,
     Dimension,
@@ -18,7 +18,6 @@ import Graphics.X11
     cWBackPixel,
     cWOverrideRedirect,
     createWindow,
-    defaultColormap,
     defaultDepthOfScreen,
     defaultScreen,
     defaultScreenOfDisplay,
@@ -28,7 +27,6 @@ import Graphics.X11
     mapWindow,
     openDisplay,
     setTextProperty,
-    set_background_pixel,
     sync,
     wM_NAME,
   )
@@ -41,12 +39,12 @@ import Graphics.X11.Xlib.Extras
     propModeReplace,
   )
 import RIO
-  (Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
+  (Foldable(length), Applicative((<*>)), Eq((==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
     IO,
     Integral,
     MVar,
     Monad (return),
-    Num((-), (+)),
+    Num((*), (+)),
     String,
     const,
     forever,
@@ -60,20 +58,19 @@ import RIO
     ($),
     (.),
     (<$>),
-    (=<<),
   )
 import RIO.Directory (getHomeDirectory)
-import RIO.FilePath ((</>))
+import RIO.FilePath ((</>), FilePath)
 import qualified System.FSNotify as FSN (Event (Modified, Removed), watchDir, withManager)
-import System.IO (putStrLn)
-import Graphics.X11.Xft (XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
+import System.IO (print, putStrLn)
+import Graphics.X11.Xft (xftfont_height, xftfont_max_advance_width, XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
 import AtomName (mkAtom, _CARDINAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _ATOM, _NET_WM_STRUT_PARTIAL, _NET_WM_WINDOW_TYPE_DOCK)
 import Data.Yaml (ParseException, decodeFileEither)
-import Config (Config, Bar(Bar))
+import Config (Config)
 import qualified Config
 import Control.Exception (throwIO)
 import Core (runSandbarIO, SandbarIO)
-import Control.Monad.Except (join, MonadError(catchError), runExceptT, liftEither)
+import Control.Monad.Except (MonadError(catchError), runExceptT, liftEither)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
 import Data.Either (Either(Left, Right))
@@ -85,11 +82,10 @@ import qualified X11InfoR
 import Control.Monad.State (MonadState(put), gets)
 import Control.Monad.Reader (asks)
 import Control.Concurrent (forkIO)
-import RIO.FilePath (FilePath)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
 import Data.Maybe (fromMaybe, Maybe(Nothing, Just))
-import Control.Monad (forM_)
+import Control.Monad ((=<<), when, forM_)
 
 newtype ColorCode = ColorCode String
 
@@ -105,7 +101,7 @@ getConfig = do
   decodeFileEither $ homeDir </> configDirName </> configFileName
 
 data Event
-  = Init
+  = Draw
   | FileModified
   deriving (Show)
 
@@ -129,6 +125,7 @@ launchBar = do
              }
        pPrint contextR
        pPrint contextRW
+       putMVar eventMVar Draw
        liftIO $ runSandbarIO (eventLoop eventMVar) contextR contextRW
      ) `catchError` (\e -> do
        liftIO $ throwIO e
@@ -139,14 +136,11 @@ launchBar = do
     _ <- FSN.watchDir mgr (homeDir </> configDirName) (const True) $ \e -> do
       case e of
         (FSN.Modified path _ _) -> do
-          putStrLn $ path <> " has been modified."
-          putMVar eventMVar FileModified
-        (FSN.Removed path _ _) -> do
-          putStrLn $ path <> " has been removed."
+          when (path == homeDir </> configDirName </> configFileName) do
+            putStrLn $ path <> " has been modified."
+            putMVar eventMVar FileModified
         _ -> return ()
     forever $ threadDelay maxBound
-
-  putMVar eventMVar Init
 
   forever $ threadDelay maxBound
 
@@ -157,7 +151,7 @@ eventLoop eventMVar = do
 
   liftIO . putStrLn $ "eventLoop: " <> show event
   case event of
-    Init -> do
+    Draw -> do
       drawSandbar
     FileModified -> do
       eContext <- getContextRW
@@ -171,7 +165,7 @@ eventLoop eventMVar = do
               window = X11InfoRW.window x11InfoRW_old
           liftIO $ destroyWindow display window
           put context
-          drawSandbar
+          putMVar eventMVar Draw
 
   eventLoop eventMVar
 
@@ -224,7 +218,6 @@ drawSandbar = do
         mapWindow disp win
 
         -- Rectangle
-        -- TODO: it's not relative to position of bar, it's absolute. so it's not show up when bar's y is different.
         forM_ rectangles \rectangle -> do
           let
             rectangle_x_pos = Config.rectangle_x_pos rectangle
@@ -233,11 +226,9 @@ drawSandbar = do
             rectangle_height = Config.rectangle_height rectangle
             rectangle_color = Config.rectangle_color rectangle
 
-          pixmapRec <- createPixmap disp win rectangle_width rectangle_height (defaultDepthOfScreen scr)
           bgColor' <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
           setForeground disp gc bgColor'
-          fillRectangle disp pixmapRec gc 0 0 rectangle_width rectangle_height
-          copyArea disp pixmapRec win gc cx cy rectangle_width rectangle_height rectangle_x_pos rectangle_y_pos
+          fillRectangle disp win gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
 
     -- Set text to window
     forM_ texts \text -> do
@@ -251,6 +242,9 @@ drawSandbar = do
       xftFont <- xftFontOpen disp scr text_font
       xftDraw <- xftDrawCreate disp win visual colormap
       xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode font_color) xftFont font_x_pos font_y_pos text_value
+      print $ "----- " <> text_value <> " -----"
+      print =<< (,,) <$> xftfont_max_advance_width xftFont <*> return (length text_value) <*> ((*) <$> xftfont_max_advance_width xftFont <*> return (length text_value))
+      print =<< xftfont_height xftFont
 
     sync disp False
 
@@ -283,12 +277,8 @@ getX11InfoRW config x11InfoR = do
       cw = Config.width bar
       ch = Config.height bar
 
-      colorc = ColorCode "#F0F0F0"
-
   -- Create a bar
-  win <- mkUnmanagedWindow disp scr rootw cx cy cw ch colorc
-
-  pixmap <- createPixmap disp win (fi cx + cw) (fi cy + ch) (defaultDepthOfScreen scr)
+  win <- mkUnmanagedWindow disp scr rootw cx cy cw ch
 
   -- Create GC
   gc <- createGC disp win
@@ -300,7 +290,6 @@ getX11InfoRW config x11InfoR = do
     { X11InfoRW.colormap = colormap
     , X11InfoRW.visual = visual
     , X11InfoRW.window = win
-    , X11InfoRW.pixmap = pixmap
     , X11InfoRW.gc = gc
     , X11InfoRW.gc_clr = gc_clr
     }
@@ -316,18 +305,12 @@ mkUnmanagedWindow ::
   Position ->
   Dimension ->
   Dimension ->
-  ColorCode ->
   IO Window
-mkUnmanagedWindow dpy scr rw x y w h colorc = do
+mkUnmanagedWindow dpy scr rw x y w h = do
   let visual = defaultVisualOfScreen scr
       attrmask = cWOverrideRedirect .|. cWBackPixel
-      colormap = defaultColormap dpy (defaultScreen dpy)
   allocaSetWindowAttributes $ \attributes -> do
     set_override_redirect attributes True
-    mColor <- initColor dpy colormap colorc
-    _ <- case mColor of
-      Just color -> set_background_pixel attributes color
-      Nothing -> set_background_pixel attributes =<< getDefaultColor dpy colormap
     createWindow dpy rw x y w h 0 (defaultDepthOfScreen scr) inputOutput visual attrmask attributes
 
 initColor :: Display -> Colormap -> ColorCode -> IO (Maybe Pixel)
