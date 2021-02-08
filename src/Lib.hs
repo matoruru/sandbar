@@ -156,16 +156,14 @@ eventLoop eventMVar = do
     FileModified -> do
       eContext <- getContextRW
       pPrint eContext
-      case eContext of
-        Left _ -> return ()
-        Right context -> do
-          x11InfoR <- asks Context.x11InfoR
-          x11InfoRW_old <- gets Context.x11InfoRW
-          let display = X11InfoR.display x11InfoR
-              window = X11InfoRW.window x11InfoRW_old
-          liftIO $ destroyWindow display window
-          put context
-          putMVar eventMVar Draw
+      forM_ eContext \context -> do
+        x11InfoR <- asks Context.x11InfoR
+        x11InfoRW_old <- gets Context.x11InfoRW
+        let display = X11InfoR.display x11InfoR
+            window = X11InfoRW.window x11InfoRW_old
+        liftIO $ destroyWindow display window
+        put context
+        putMVar eventMVar Draw
 
   eventLoop eventMVar
 
@@ -209,26 +207,23 @@ drawSandbar = do
 
     mDefaultColor <- initColor disp colormap (ColorCode "black")
 
-    case mDefaultColor of
-      Nothing -> return ()
-      Just defaultColor -> do
-        bgColor <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode background_color)
-        setWindowBackground disp win bgColor
+    forM_ mDefaultColor \defaultColor -> do
+      bgColor <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode background_color)
+      setWindowBackground disp win bgColor
+      mapWindow disp win
 
-        mapWindow disp win
+      -- Rectangle
+      forM_ rectangles \rectangle -> do
+        let
+          rectangle_x_pos = Config.rectangle_x_pos rectangle
+          rectangle_y_pos = Config.rectangle_y_pos rectangle
+          rectangle_width = Config.rectangle_width rectangle
+          rectangle_height = Config.rectangle_height rectangle
+          rectangle_color = Config.rectangle_color rectangle
 
-        -- Rectangle
-        forM_ rectangles \rectangle -> do
-          let
-            rectangle_x_pos = Config.rectangle_x_pos rectangle
-            rectangle_y_pos = Config.rectangle_y_pos rectangle
-            rectangle_width = Config.rectangle_width rectangle
-            rectangle_height = Config.rectangle_height rectangle
-            rectangle_color = Config.rectangle_color rectangle
-
-          bgColor' <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
-          setForeground disp gc bgColor'
-          fillRectangle disp win gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
+        bgColor' <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
+        setForeground disp gc bgColor'
+        fillRectangle disp win gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
 
     -- Set text to window
     forM_ texts \text -> do
