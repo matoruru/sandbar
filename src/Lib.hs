@@ -4,7 +4,7 @@ module Lib where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
-  (setWindowBackground, set_override_redirect, setForeground, fillRectangle, Visual, defaultColormapOfScreen, createGC,
+  (setBackground, copyArea, createPixmap, setWindowBackground, set_override_redirect, setForeground, fillRectangle, Visual, defaultColormapOfScreen, createGC,
     Color (color_pixel),
     Colormap,
     Dimension,
@@ -84,7 +84,7 @@ import Control.Monad.Reader (asks)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
-import Data.Maybe (fromMaybe, Maybe(Nothing, Just))
+import Data.Maybe (fromJust, fromMaybe, Maybe(Nothing, Just))
 import Control.Monad ((=<<), when, forM_)
 
 newtype ColorCode = ColorCode String
@@ -201,15 +201,15 @@ drawSandbar = do
     visual = X11InfoRW.visual x11InfoRW
 
   liftIO do
-    -- Set properties
-    setProperties disp win
-    setStruts (Rectangle cx cy cw ch) disp win
-
     mDefaultColor <- initColor disp colormap (ColorCode "black")
 
     forM_ mDefaultColor \defaultColor -> do
-      bgColor <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode background_color)
-      setWindowBackground disp win bgColor
+      -- Set properties
+      setProperties disp win
+      setStruts (Rectangle cx cy cw ch) disp win
+
+      bar_background_color <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode background_color)
+      setWindowBackground disp win bar_background_color
       mapWindow disp win
 
       -- Rectangle
@@ -221,25 +221,32 @@ drawSandbar = do
           rectangle_height = Config.rectangle_height rectangle
           rectangle_color = Config.rectangle_color rectangle
 
-        bgColor' <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
-        setForeground disp gc bgColor'
+        bgColor <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
+        setForeground disp gc bgColor
         fillRectangle disp win gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
 
-    -- Set text to window
-    forM_ texts \text -> do
-      let
-        text_value = Config.text_value text
-        text_font = Config.text_font text
-        font_color = Config.text_color text
-        font_x_pos = Config.text_x_pos text
-        font_y_pos = Config.text_y_pos text
+      -- Set text to window
+      forM_ texts \text -> do
+        let
+          text_value = Config.text_value text
+          text_font = Config.text_font text
+          text_background_color = Config.text_background_color text
+          font_color = Config.text_color text
+          font_x_pos = Config.text_x_pos text
+          font_y_pos = Config.text_y_pos text
 
-      xftFont <- xftFontOpen disp scr text_font
-      xftDraw <- xftDrawCreate disp win visual colormap
-      xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode font_color) xftFont font_x_pos font_y_pos text_value
-      print $ "----- " <> text_value <> " -----"
-      print =<< (,,) <$> xftfont_max_advance_width xftFont <*> return (length text_value) <*> ((*) <$> xftfont_max_advance_width xftFont <*> return (length text_value))
-      print =<< xftfont_height xftFont
+        xftFont <- xftFontOpen disp scr text_font
+        pixmapWidth <- (*) <$> xftfont_max_advance_width xftFont <*> return (length text_value)
+        pixmap <- createPixmap disp win (fi pixmapWidth) ch (defaultDepthOfScreen scr)
+        xftDraw <- xftDrawCreate disp pixmap visual colormap
+        bgColor <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode text_background_color)
+        setForeground disp gc bgColor
+        fillRectangle disp pixmap gc 0 0 (fi pixmapWidth) ch
+
+        xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode font_color) xftFont 0 font_y_pos text_value
+
+        -- copyArea Display Pixmap Window GC Pix_x Pix_y (fi pixmapWidth) ch Win_x Win_y
+        copyArea disp pixmap win gc 0 0 (fi pixmapWidth) ch (fi font_x_pos) 0
 
     sync disp False
 

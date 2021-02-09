@@ -39,6 +39,7 @@ instance FromJSON Bar
 
 data Text = Text
   { text_font :: String
+  , text_background_color :: String
   , text_value :: String
   , text_color :: String
   , text_x_pos :: Integer
