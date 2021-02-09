@@ -4,13 +4,11 @@ module Lib where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
-  (setBackground, copyArea, createPixmap, setWindowBackground, set_override_redirect, setForeground, fillRectangle, Visual, defaultColormapOfScreen, createGC,
+  (copyArea, createPixmap, setWindowBackground, set_override_redirect, setForeground, fillRectangle, defaultColormapOfScreen, createGC,
     Color (color_pixel),
-    Colormap,
     Dimension,
     Pixel,
     Position,
-    Rectangle (Rectangle),
     Screen,
     Window,
     allocNamedColor,
@@ -61,9 +59,9 @@ import RIO
   )
 import RIO.Directory (getHomeDirectory)
 import RIO.FilePath ((</>), FilePath)
-import qualified System.FSNotify as FSN (Event (Modified, Removed), watchDir, withManager)
-import System.IO (print, putStrLn)
-import Graphics.X11.Xft (xftfont_height, xftfont_max_advance_width, XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
+import qualified System.FSNotify as FSN (Event (Modified), watchDir, withManager)
+import System.IO (putStr, putStrLn)
+import Graphics.X11.Xft (xftfont_max_advance_width, XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
 import AtomName (mkAtom, _CARDINAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _ATOM, _NET_WM_STRUT_PARTIAL, _NET_WM_WINDOW_TYPE_DOCK)
 import Data.Yaml (ParseException, decodeFileEither)
 import Config (Config)
@@ -73,7 +71,7 @@ import Core (runSandbarIO, SandbarIO)
 import Control.Monad.Except (MonadError(catchError), runExceptT, liftEither)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
-import Data.Either (Either(Left, Right))
+import Data.Either (Either)
 import qualified Context
 import X11InfoRW (X11InfoRW(X11InfoRW))
 import qualified X11InfoRW
@@ -84,10 +82,7 @@ import Control.Monad.Reader (asks)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
-import Data.Maybe (fromJust, fromMaybe, Maybe(Nothing, Just))
-import Control.Monad ((=<<), when, forM_)
-
-newtype ColorCode = ColorCode String
+import Control.Monad (when, forM_)
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"
@@ -184,9 +179,6 @@ drawSandbar = do
 
   let
     bar = Config.bar config
-    cx = Config.x_pos bar
-    cy = Config.y_pos bar
-    cw = Config.width bar
     ch = Config.height bar
     background_color = Config.background_color bar
     texts = Config.text bar
@@ -195,74 +187,84 @@ drawSandbar = do
   let
     disp = X11InfoR.display x11InfoR
     scr = X11InfoR.screen x11InfoR
+    colormap = X11InfoR.colormap x11InfoR
     win = X11InfoRW.window x11InfoRW
-    colormap = X11InfoRW.colormap x11InfoRW
     gc = X11InfoRW.gc x11InfoRW
     visual = X11InfoRW.visual x11InfoRW
 
+  bar_background_color <- initColor background_color
+
+  -- Set properties
+  setProperties
+  setStruts
+
   liftIO do
-    mDefaultColor <- initColor disp colormap (ColorCode "black")
+    setWindowBackground disp win bar_background_color
+    mapWindow disp win
 
-    forM_ mDefaultColor \defaultColor -> do
-      -- Set properties
-      setProperties disp win
-      setStruts (Rectangle cx cy cw ch) disp win
+  -- Rectangle
+  forM_ rectangles \rectangle -> do
+    let
+      rectangle_x_pos = Config.rectangle_x_pos rectangle
+      rectangle_y_pos = Config.rectangle_y_pos rectangle
+      rectangle_width = Config.rectangle_width rectangle
+      rectangle_height = Config.rectangle_height rectangle
+      rectangle_color = Config.rectangle_color rectangle
+    bgColor <- initColor rectangle_color
+    liftIO do
+      setForeground disp gc bgColor
+      fillRectangle disp win gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
 
-      bar_background_color <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode background_color)
-      setWindowBackground disp win bar_background_color
-      mapWindow disp win
-
-      -- Rectangle
-      forM_ rectangles \rectangle -> do
-        let
-          rectangle_x_pos = Config.rectangle_x_pos rectangle
-          rectangle_y_pos = Config.rectangle_y_pos rectangle
-          rectangle_width = Config.rectangle_width rectangle
-          rectangle_height = Config.rectangle_height rectangle
-          rectangle_color = Config.rectangle_color rectangle
-
-        bgColor <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode rectangle_color)
-        setForeground disp gc bgColor
-        fillRectangle disp win gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
-
-      -- Set text to window
-      forM_ texts \text -> do
-        let
-          text_value = Config.text_value text
-          text_font = Config.text_font text
-          text_background_color = Config.text_background_color text
-          font_color = Config.text_color text
-          font_x_pos = Config.text_x_pos text
-          font_y_pos = Config.text_y_pos text
-
+  -- Set text to window
+  forM_ texts \text -> do
+    let
+      text_value = Config.text_value text
+      text_font = Config.text_font text
+      text_background_color = Config.text_background_color text
+      font_color = Config.text_color text
+      font_x_pos = Config.text_x_pos text
+      font_y_pos = Config.text_y_pos text
+    bgColor <- initColor text_background_color
+    do
+      (xftDraw, xftFont, pixmapWidth, pixmap) <- liftIO do
         xftFont <- xftFontOpen disp scr text_font
         pixmapWidth <- (*) <$> xftfont_max_advance_width xftFont <*> return (length text_value)
         pixmap <- createPixmap disp win (fi pixmapWidth) ch (defaultDepthOfScreen scr)
         xftDraw <- xftDrawCreate disp pixmap visual colormap
-        bgColor <- fromMaybe defaultColor <$> initColor disp colormap (ColorCode text_background_color)
         setForeground disp gc bgColor
         fillRectangle disp pixmap gc 0 0 (fi pixmapWidth) ch
+        return (xftDraw, xftFont, pixmapWidth, pixmap)
 
-        xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode font_color) xftFont 0 font_y_pos text_value
+      xftDrawStringWithColorName xftDraw font_color xftFont 0 font_y_pos text_value
 
+      liftIO do
         -- copyArea Display Pixmap Window GC Pix_x Pix_y (fi pixmapWidth) ch Win_x Win_y
         copyArea disp pixmap win gc 0 0 (fi pixmapWidth) ch (fi font_x_pos) 0
 
+  liftIO do
     sync disp False
 
 getX11InfoR :: IO X11InfoR
 getX11InfoR = do
   display <- openDisplay ""
 
-  let screenNumber = defaultScreen display
+  let
+    screenNumber = defaultScreen display
+    screen = defaultScreenOfDisplay display
+    colormap = defaultColormapOfScreen screen
+    defaultColorName = "#606060"
 
   rootw <- Graphics.X11.rootWindow display screenNumber
+  defaultColor <- color_pixel . fst <$> allocNamedColor display colormap defaultColorName
 
   return X11InfoR
     { X11InfoR.display = display
-    , X11InfoR.screen = defaultScreenOfDisplay display
+    , X11InfoR.screen = screen
     , X11InfoR.screenNumber = screenNumber
     , X11InfoR.rootWindow = rootw
+    , X11InfoR.colormap = colormap
+    , X11InfoR.defaultColorName = defaultColorName
+    , X11InfoR.defaultColor = defaultColor
     }
 
 getX11InfoRW :: Config -> X11InfoR -> IO X11InfoRW
@@ -270,7 +272,6 @@ getX11InfoRW config x11InfoR = do
   let disp = X11InfoR.display x11InfoR
       scr = X11InfoR.screen x11InfoR
       rootw = X11InfoR.rootWindow x11InfoR
-      colormap = defaultColormapOfScreen scr
       visual  = defaultVisualOfScreen scr
 
       bar = Config.bar config
@@ -289,15 +290,29 @@ getX11InfoRW config x11InfoR = do
   gc_clr <- createGC disp win
 
   return $ X11InfoRW
-    { X11InfoRW.colormap = colormap
-    , X11InfoRW.visual = visual
+    { X11InfoRW.visual = visual
     , X11InfoRW.window = win
     , X11InfoRW.gc = gc
     , X11InfoRW.gc_clr = gc_clr
     }
 
-xftDrawStringWithColorName :: Display -> Visual -> Colormap -> XftDraw -> ColorCode -> XftFont -> Integer -> Integer -> String -> IO ()
-xftDrawStringWithColorName disp visual colormap xftDraw (ColorCode xftColor) xftFont x y str = withXftColorName disp visual colormap xftColor (\c -> xftDrawString xftDraw c xftFont x y str)
+xftDrawStringWithColorName :: XftDraw -> String -> XftFont -> Integer -> Integer -> String -> SandbarIO ()
+xftDrawStringWithColorName xftDraw color xftFont x y str = do
+  x11InfoRW <- gets Context.x11InfoRW
+  x11InfoR <- asks Context.x11InfoR
+  let
+    display = X11InfoR.display x11InfoR
+    colormap = X11InfoR.colormap x11InfoR
+    defaultColorName = X11InfoR.defaultColorName x11InfoR
+    visual = X11InfoRW.visual x11InfoRW
+  liftIO do
+    ( do
+      _ <- allocNamedColor display colormap color -- Throws an error if the color didn't exist
+      withXftColorName display visual colormap color (\c -> xftDrawString xftDraw c xftFont x y str)
+     ) `catchError` \e -> do
+       putStr $ "Error from xftDrawStringWithColorName(" <> color <> "): "
+       pPrint e
+       withXftColorName display visual colormap defaultColorName (\c -> xftDrawString xftDraw c xftFont x y str)
 
 mkUnmanagedWindow ::
   Display ->
@@ -315,13 +330,19 @@ mkUnmanagedWindow dpy scr rw x y w h = do
     set_override_redirect attributes True
     createWindow dpy rw x y w h 0 (defaultDepthOfScreen scr) inputOutput visual attrmask attributes
 
-initColor :: Display -> Colormap -> ColorCode -> IO (Maybe Pixel)
-initColor dpy colormap (ColorCode color) = do
-  ( Just . color_pixel . fst <$> allocNamedColor dpy colormap color
-   ) `catchError` const (return Nothing)
-
-getDefaultColor :: Display -> Colormap -> IO Pixel
-getDefaultColor dpy colormap = color_pixel . fst <$> allocNamedColor dpy colormap "#606060"
+initColor :: String -> SandbarIO Pixel
+initColor color = do
+  x11InfoR <- asks Context.x11InfoR
+  let
+    display = X11InfoR.display x11InfoR
+    colormap = X11InfoR.colormap x11InfoR
+    defaultColor = X11InfoR.defaultColor x11InfoR
+  liftIO do
+    ( color_pixel . fst <$> allocNamedColor display colormap color
+     ) `catchError` \e -> do
+       putStr $ "Error from initColor(" <> color <> "): "
+       pPrint e
+       return defaultColor
 
 getStaticStrutValues :: Num a => a -> a -> a -> a -> [a]
 getStaticStrutValues cx cy cw ch =
@@ -331,22 +352,40 @@ getStaticStrutValues cx cy cw ch =
     top_start_x = cx
     top_end_x = cw + cx
 
-setStruts :: Rectangle -> Display -> Window -> IO ()
-setStruts (Rectangle cx cy cw ch) dpy win = do
-  let svs = getStaticStrutValues (fi cx) (fi cy) (fi cw) (fi ch)
-  card <- mkAtom dpy _CARDINAL
-  pstrut <- mkAtom dpy _NET_WM_STRUT_PARTIAL
-  strut <- mkAtom dpy _NET_WM_STRUT
-  changeProperty32 dpy win pstrut card propModeReplace svs
-  changeProperty32 dpy win strut card propModeReplace (take 4 svs)
+setStruts :: SandbarIO ()
+setStruts = do
+  config <- gets Context.config
+  x11InfoRW <- gets Context.x11InfoRW
+  x11InfoR <- asks Context.x11InfoR
+  let
+    bar = Config.bar config
+    cx = Config.x_pos bar
+    cy = Config.y_pos bar
+    cw = Config.width bar
+    ch = Config.height bar
+    svs = getStaticStrutValues (fi cx) (fi cy) (fi cw) (fi ch)
+    display = X11InfoR.display x11InfoR
+    window = X11InfoRW.window x11InfoRW
+  liftIO do
+    card <- mkAtom display _CARDINAL
+    pstrut <- mkAtom display _NET_WM_STRUT_PARTIAL
+    strut <- mkAtom display _NET_WM_STRUT
+    changeProperty32 display window pstrut card propModeReplace svs
+    changeProperty32 display window strut card propModeReplace (take 4 svs)
 
-setProperties :: Display -> Window -> IO ()
-setProperties dpy win = do
-  atom <- mkAtom dpy _ATOM
-  setTextProperty dpy win "sandbar" wM_NAME
-  wtype <- mkAtom dpy _NET_WM_WINDOW_TYPE
-  dock <- mkAtom dpy _NET_WM_WINDOW_TYPE_DOCK
-  changeProperty32 dpy win wtype atom propModeReplace [fi dock]
+setProperties :: SandbarIO ()
+setProperties = do
+  x11InfoRW <- gets Context.x11InfoRW
+  x11InfoR <- asks Context.x11InfoR
+  let
+    display = X11InfoR.display x11InfoR
+    window = X11InfoRW.window x11InfoRW
+  liftIO do
+    atom <- mkAtom display _ATOM
+    setTextProperty display window "sandbar" wM_NAME
+    wtype <- mkAtom display _NET_WM_WINDOW_TYPE
+    dock <- mkAtom display _NET_WM_WINDOW_TYPE_DOCK
+    changeProperty32 display window wtype atom propModeReplace [fi dock]
 
 fi :: (Integral a, Num b) => a -> b
 fi = fromIntegral

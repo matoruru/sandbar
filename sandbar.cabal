@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 6cec9e0321294f85fb35410775221176642528af7fa0380692a0a589831e0d5d
+-- hash: 244ee5fa28105edef408514f38de215c8c973e027fad4557f1c70e1223bec691
 
 name:           sandbar
 version:        0.1.0.0
@@ -33,6 +33,7 @@ library
       Core
       DefaultConfig
       Lib
+      Types
       X11InfoR
       X11InfoRW
   other-modules:
