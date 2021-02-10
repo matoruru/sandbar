@@ -37,7 +37,7 @@ import Graphics.X11.Xlib.Extras
     propModeReplace,
   )
 import RIO
-  (Foldable(length), Applicative((<*>)), Eq((==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
+  (MonadThrow(throwM), Foldable(length), Applicative((<*>)), Eq((==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
     IO,
     Integral,
     MVar,
@@ -71,7 +71,7 @@ import Core (runSandbarIO, SandbarIO)
 import Control.Monad.Except (MonadError(catchError), runExceptT, liftEither)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
-import Data.Either (Either)
+import Data.Either (Either(Right, Left))
 import qualified Context
 import X11InfoRW (X11InfoRW(X11InfoRW))
 import qualified X11InfoRW
@@ -82,7 +82,8 @@ import Control.Monad.Reader (asks)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
-import Control.Monad (when, forM_)
+import Control.Monad ((=<<), when, forM_)
+import Data.Bifunctor (Bifunctor(first))
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"
@@ -100,32 +101,32 @@ data Event
   | FileModified
   deriving (Show)
 
-launchBar :: IO ()
-launchBar = do
+init :: IO ()
+init = do
   eConfig <- getConfig
 
   eventMVar <- newEmptyMVar :: IO (MVar Event)
 
-  _ <- forkIO $ void $ runExceptT do
-    (do
-       config <- liftEither eConfig
-       x11InfoR <- liftIO getX11InfoR
-       x11InfoRW <- liftIO $ getX11InfoRW config x11InfoR
-       let contextR = ContextR
-             { Context.x11InfoR = x11InfoR
-             }
-           contextRW = ContextRW
-             { Context.config = config
-             , Context.x11InfoRW = x11InfoRW
-             }
-       pPrint contextR
-       pPrint contextRW
-       putMVar eventMVar Draw
-       liftIO $ runSandbarIO (eventLoop eventMVar) contextR contextRW
-     ) `catchError` (\e -> do
-       liftIO $ throwIO e
-     )
+  result <- runExceptT do
+    config <- liftEither eConfig
+    x11InfoR <- liftIO getX11InfoR
+    x11InfoRW <- liftIO $ getX11InfoRW config x11InfoR
+    putMVar eventMVar Draw
+    return
+      ( ContextR { Context.x11InfoR = x11InfoR }
+      , ContextRW { Context.config = config, Context.x11InfoRW = x11InfoRW }
+      )
 
+  case result of
+    Left e -> throwIO e
+    Right r -> launchBar eventMVar r
+
+launchBar :: MVar Event -> (ContextR, ContextRW) -> IO ()
+launchBar eventMVar (contextR, contextRW) = do
+  -- Event loop
+  _ <- forkIO . void $ runSandbarIO (eventLoop eventMVar) contextR contextRW
+
+  -- Config file (~/.config/sandbar/config.yaml) watcher
   _ <- forkIO $ FSN.withManager $ \mgr -> do
     homeDir <- getHomeDirectory
     _ <- FSN.watchDir mgr (homeDir </> configDirName) (const True) $ \e -> do
@@ -138,6 +139,7 @@ launchBar = do
     forever $ threadDelay maxBound
 
   forever $ threadDelay maxBound
+
 
 eventLoop :: MVar Event -> SandbarIO ()
 eventLoop eventMVar = do
@@ -225,21 +227,20 @@ drawSandbar = do
       font_x_pos = Config.text_x_pos text
       font_y_pos = Config.text_y_pos text
     bgColor <- initColor text_background_color
-    do
-      (xftDraw, xftFont, pixmapWidth, pixmap) <- liftIO do
-        xftFont <- xftFontOpen disp scr text_font
-        pixmapWidth <- (*) <$> xftfont_max_advance_width xftFont <*> return (length text_value)
-        pixmap <- createPixmap disp win (fi pixmapWidth) ch (defaultDepthOfScreen scr)
-        xftDraw <- xftDrawCreate disp pixmap visual colormap
-        setForeground disp gc bgColor
-        fillRectangle disp pixmap gc 0 0 (fi pixmapWidth) ch
-        return (xftDraw, xftFont, pixmapWidth, pixmap)
+    (xftDraw, xftFont, pixmapWidth, pixmap) <- liftIO do
+      xftFont <- xftFontOpen disp scr text_font
+      pixmapWidth <- (*) <$> xftfont_max_advance_width xftFont <*> return (length text_value)
+      pixmap <- createPixmap disp win (fi pixmapWidth) ch (defaultDepthOfScreen scr)
+      xftDraw <- xftDrawCreate disp pixmap visual colormap
+      setForeground disp gc bgColor
+      fillRectangle disp pixmap gc 0 0 (fi pixmapWidth) ch
+      return (xftDraw, xftFont, pixmapWidth, pixmap)
 
-      xftDrawStringWithColorName xftDraw font_color xftFont 0 font_y_pos text_value
+    xftDrawStringWithColorName xftDraw font_color xftFont 0 font_y_pos text_value
 
-      liftIO do
-        -- copyArea Display Pixmap Window GC Pix_x Pix_y (fi pixmapWidth) ch Win_x Win_y
-        copyArea disp pixmap win gc 0 0 (fi pixmapWidth) ch (fi font_x_pos) 0
+    liftIO do
+      -- copyArea Display Pixmap Window GC Pix_x Pix_y (fi pixmapWidth) ch Win_x Win_y
+      copyArea disp pixmap win gc 0 0 (fi pixmapWidth) ch (fi font_x_pos) 0
 
   liftIO do
     sync disp False
