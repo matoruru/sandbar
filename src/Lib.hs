@@ -82,7 +82,6 @@ import Control.Concurrent (newMVar, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
 import Control.Monad ((=<<), when, forM_)
-import Data.Aeson.Diff (diff)
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"

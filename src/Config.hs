@@ -1,42 +1,11 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Config where
 
-import RIO (Integer, String, Show, Generic)
-import Data.Yaml (FromJSON)
+import Data.Aeson.TH (Options(rejectUnknownFields), defaultOptions, deriveJSON)
+import RIO (Eq, Bool(True), Integer, String, Show)
 import Graphics.X11 (Position)
 import GHC.Word (Word32)
-
-newtype Config = Config
-  { bar :: Bar
-  } deriving (Show, Generic)
-
-instance FromJSON Config
-
-{-
- (x_pos,y_pos)----------------+  -+-
-      |                       |   |
-      |          bar          |   | height
-      |                       |   |
-      +-----------------------+  -+-
-
-      |                       |
-      +-----------------------+
-      |         width         |
-
--}
-data Bar = Bar
-  { bar_name :: String
-  , bar_x_pos :: Position
-  , bar_y_pos :: Position
-  , bar_width :: Word32
-  , bar_height :: Word32
-  , bar_background_color :: String
-  , text :: [Text]
-  , rectangle :: [Rectangle]
-  } deriving (Show, Generic)
-
-instance FromJSON Bar
 
 data Text = Text
   { text_name :: String
@@ -46,9 +15,9 @@ data Text = Text
   , text_color :: String
   , text_x_pos :: Integer
   , text_y_pos :: Integer
-  } deriving (Show, Generic)
+  } deriving (Show, Eq)
 
-instance FromJSON Text
+$(deriveJSON defaultOptions{ rejectUnknownFields = True } ''Text)
 
 data Rectangle = Rectangle
   { rectangle_name :: String
@@ -57,6 +26,26 @@ data Rectangle = Rectangle
   , rectangle_width :: Word32
   , rectangle_height :: Word32
   , rectangle_color :: String
-  } deriving (Show, Generic)
+  } deriving (Show, Eq)
 
-instance FromJSON Rectangle
+$(deriveJSON defaultOptions{ rejectUnknownFields = True } ''Rectangle)
+
+data Bar = Bar
+  { bar_name :: String
+  , bar_x_pos :: Position
+  , bar_y_pos :: Position
+  , bar_width :: Word32
+  , bar_height :: Word32
+  , bar_background_color :: String
+  , text :: [Text]
+  , rectangle :: [Rectangle]
+  } deriving (Show, Eq)
+
+$(deriveJSON defaultOptions{ rejectUnknownFields = True } ''Bar)
+
+newtype Config = Config
+  { bar :: Bar
+  } deriving (Show, Eq)
+
+-- Root should not have `rejectUnknownFields` in order to allow anchors.
+$(deriveJSON defaultOptions ''Config)
