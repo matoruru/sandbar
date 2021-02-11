@@ -26,11 +26,12 @@ instance FromJSON Config
 
 -}
 data Bar = Bar
-  { x_pos :: Position
-  , y_pos :: Position
-  , width :: Word32
-  , height :: Word32
-  , background_color :: String
+  { bar_name :: String
+  , bar_x_pos :: Position
+  , bar_y_pos :: Position
+  , bar_width :: Word32
+  , bar_height :: Word32
+  , bar_background_color :: String
   , text :: [Text]
   , rectangle :: [Rectangle]
   } deriving (Show, Generic)
@@ -38,7 +39,8 @@ data Bar = Bar
 instance FromJSON Bar
 
 data Text = Text
-  { text_font :: String
+  { text_name :: String
+  , text_font :: String
   , text_background_color :: String
   , text_value :: String
   , text_color :: String
@@ -49,7 +51,8 @@ data Text = Text
 instance FromJSON Text
 
 data Rectangle = Rectangle
-  { rectangle_x_pos :: Position
+  { rectangle_name :: String
+  , rectangle_x_pos :: Position
   , rectangle_y_pos :: Position
   , rectangle_width :: Word32
   , rectangle_height :: Word32

@@ -224,8 +224,8 @@ drawSandbar = do
 
   let
     bar = Config.bar config
-    ch = Config.height bar
-    background_color = Config.background_color bar
+    ch = Config.bar_height bar
+    background_color = Config.bar_background_color bar
     texts = Config.text bar
     rectangles = Config.rectangle bar
 
@@ -246,19 +246,6 @@ drawSandbar = do
   liftIO do
     setWindowBackground disp win bar_background_color
     mapWindow disp win
-
-  -- Rectangle
-  forM_ rectangles \rectangle -> do
-    let
-      rectangle_x_pos = Config.rectangle_x_pos rectangle
-      rectangle_y_pos = Config.rectangle_y_pos rectangle
-      rectangle_width = Config.rectangle_width rectangle
-      rectangle_height = Config.rectangle_height rectangle
-      rectangle_color = Config.rectangle_color rectangle
-    bgColor <- initColor rectangle_color
-    liftIO do
-      setForeground disp gc bgColor
-      fillRectangle disp win gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
 
   -- Set text to window
   forM_ texts \text -> do
@@ -284,6 +271,20 @@ drawSandbar = do
     liftIO do
       -- copyArea Display Pixmap Window GC Pix_x Pix_y (fi pixmapWidth) ch Win_x Win_y
       copyArea disp pixmap win gc 0 0 (fi pixmapWidth) ch (fi font_x_pos) 0
+
+  -- Rectangle
+  forM_ rectangles \rectangle -> do
+    let
+      rectangle_x_pos = Config.rectangle_x_pos rectangle
+      rectangle_y_pos = Config.rectangle_y_pos rectangle
+      rectangle_width = Config.rectangle_width rectangle
+      rectangle_height = Config.rectangle_height rectangle
+      rectangle_color = Config.rectangle_color rectangle
+    bgColor <- initColor rectangle_color
+    liftIO do
+      setForeground disp gc bgColor
+      fillRectangle disp win gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
+
 
   liftIO do
     sync disp False
@@ -319,10 +320,10 @@ getX11InfoRW config x11InfoR = do
       visual  = defaultVisualOfScreen scr
 
       bar = Config.bar config
-      cx = Config.x_pos bar
-      cy = Config.y_pos bar
-      cw = Config.width bar
-      ch = Config.height bar
+      cx = Config.bar_x_pos bar
+      cy = Config.bar_y_pos bar
+      cw = Config.bar_width bar
+      ch = Config.bar_height bar
 
   -- Create a bar
   win <- mkUnmanagedWindow disp scr rootw cx cy cw ch
@@ -403,10 +404,10 @@ setStruts = do
   x11InfoR <- asks Context.x11InfoR
   let
     bar = Config.bar config
-    cx = Config.x_pos bar
-    cy = Config.y_pos bar
-    cw = Config.width bar
-    ch = Config.height bar
+    cx = Config.bar_x_pos bar
+    cy = Config.bar_y_pos bar
+    cw = Config.bar_width bar
+    ch = Config.bar_height bar
     svs = getStaticStrutValues (fi cx) (fi cy) (fi cw) (fi ch)
     display = X11InfoR.display x11InfoR
     window = X11InfoRW.window x11InfoRW
