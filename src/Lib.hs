@@ -37,7 +37,7 @@ import Graphics.X11.Xlib.Extras
     propModeReplace,
   )
 import RIO
-  (Foldable(length), Applicative((<*>)), Eq((==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
+  (id, Foldable(length), Applicative((<*>)), Eq((==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
     IO,
     Integral,
     MVar,
@@ -67,10 +67,10 @@ import Data.Yaml (ParseException, decodeFileEither)
 import Config (Config)
 import qualified Config
 import Core (runSandbarIO, SandbarIO)
-import Control.Monad.Except (MonadError(catchError))
+import Control.Monad.Except (runExceptT, MonadError(catchError))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
-import Data.Either (Either(Right, Left))
+import Data.Either (either, Either(Right, Left))
 import qualified Context
 import X11InfoRW (X11InfoRW(X11InfoRW))
 import qualified X11InfoRW
@@ -81,7 +81,8 @@ import Control.Monad.Reader (asks)
 import Control.Concurrent (newMVar, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
-import Control.Monad ((=<<), when, forM_)
+import Control.Monad (Monad((>>=)), (=<<), when, forM_)
+import Control.Exception (try, SomeException, Exception)
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"
@@ -179,6 +180,15 @@ eventLoop takeEvent putAction = go where
           Left e -> pPrint e
         go
 
+data ValidationError
+  = NameFieldShouldBeUnique String
+  deriving Show
+
+instance Exception ValidationError
+
+validateConfig :: Config -> Either ValidationError Config
+validateConfig _ = Left $ NameFieldShouldBeUnique "failed"
+
 watchConfigfile :: (Event -> IO ()) -> IO ()
 watchConfigfile putEvent = void $ do
   FSN.withManager $ \mgr -> do
@@ -203,10 +213,16 @@ initLoop takeEvent = go where
       FileModified -> do
         eConfig <- getConfig
         case eConfig of
-          Right r -> return r
           Left e -> do
             pPrint e
             go
+          Right config -> do
+            let eValidated = validateConfig config
+            case eValidated of
+              Left e -> do
+                pPrint e
+                go
+              Right validated -> return validated
 
 getContextRW :: SandbarIO ContextRW
 getContextRW = do
