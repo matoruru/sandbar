@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 244ee5fa28105edef408514f38de215c8c973e027fad4557f1c70e1223bec691
+-- hash: f2e10b8016f5a1374cc703ab0bbe889f91bde98e2194a41e1755f5c5b338fafe
 
 name:           sandbar
 version:        0.1.0.0
@@ -45,6 +45,7 @@ library
   build-depends:
       X11
     , X11-xft
+    , aeson-diff
     , base
     , fsnotify
     , mtl
@@ -65,6 +66,7 @@ executable sandbar-exe
   build-depends:
       X11
     , X11-xft
+    , aeson-diff
     , base
     , fsnotify
     , mtl
@@ -87,6 +89,7 @@ test-suite sandbar-test
   build-depends:
       X11
     , X11-xft
+    , aeson-diff
     , base
     , fsnotify
     , mtl

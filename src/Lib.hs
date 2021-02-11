@@ -37,7 +37,7 @@ import Graphics.X11.Xlib.Extras
     propModeReplace,
   )
 import RIO
-  (MonadThrow(throwM), Foldable(length), Applicative((<*>)), Eq((==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
+  (Foldable(length), Applicative((<*>)), Eq((==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
     IO,
     Integral,
     MVar,
@@ -63,12 +63,11 @@ import qualified System.FSNotify as FSN (Event (Modified), watchDir, withManager
 import System.IO (putStr, putStrLn)
 import Graphics.X11.Xft (xftfont_max_advance_width, XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
 import AtomName (mkAtom, _CARDINAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _ATOM, _NET_WM_STRUT_PARTIAL, _NET_WM_WINDOW_TYPE_DOCK)
-import Data.Yaml (ParseException, decodeFileEither)
+import Data.Yaml (ToJSON(toJSON), ParseException, decodeFileEither)
 import Config (Config)
 import qualified Config
-import Control.Exception (throwIO)
 import Core (runSandbarIO, SandbarIO)
-import Control.Monad.Except (MonadError(catchError), runExceptT, liftEither)
+import Control.Monad.Except (MonadError(catchError))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
 import Data.Either (Either(Right, Left))
@@ -77,13 +76,13 @@ import X11InfoRW (X11InfoRW(X11InfoRW))
 import qualified X11InfoRW
 import X11InfoR (X11InfoR(X11InfoR))
 import qualified X11InfoR
-import Control.Monad.State (MonadState(put), gets)
+import Control.Monad.State (modify, MonadState(put), gets)
 import Control.Monad.Reader (asks)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (newMVar, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
 import Control.Monad ((=<<), when, forM_)
-import Data.Bifunctor (Bifunctor(first))
+import Data.Aeson.Diff (diff)
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"
@@ -91,87 +90,131 @@ configDirName = ".config/sandbar"
 configFileName :: FilePath
 configFileName = "config.yaml"
 
-getConfig :: IO (Either ParseException Config.Config)
+getConfig :: IO (Either ParseException Config)
 getConfig = do
   homeDir <- getHomeDirectory
   decodeFileEither $ homeDir </> configDirName </> configFileName
 
-data Event
-  = Draw
-  | FileModified
+data Action
+  = UpdateContext Config
+  | Draw
   deriving (Show)
+
+data Event
+  = FileModified
+  deriving (Show)
+
+mkMVarOperations :: MVar a -> IO (a -> IO (), IO a)
+mkMVarOperations mVar = do
+  let p = putMVar mVar
+      t = takeMVar mVar
+  return (p, t)
 
 init :: IO ()
 init = do
+  (putEvent, takeEvent) <- mkMVarOperations =<< newEmptyMVar
+
+  -- Start the config file (~/.config/sandbar/config.yaml) watcher.
+  _ <- forkIO $ watchConfigfile putEvent
+
+  -- Try to read and decode the config file.
   eConfig <- getConfig
 
-  eventMVar <- newEmptyMVar :: IO (MVar Event)
+  -- Block until decoding the config file completes.
+  config <- case eConfig of
+    Right c -> return c
+    Left e -> do
+      putStrLn "Error found. Please fix the config file:"
+      pPrint e
+      initLoop takeEvent
 
-  result <- runExceptT do
-    config <- liftEither eConfig
-    x11InfoR <- liftIO getX11InfoR
-    x11InfoRW <- liftIO $ getX11InfoRW config x11InfoR
-    putMVar eventMVar Draw
-    return
-      ( ContextR { Context.x11InfoR = x11InfoR }
-      , ContextRW { Context.config = config, Context.x11InfoRW = x11InfoRW }
-      )
+  (putAction, takeAction) <- mkMVarOperations =<< newMVar Draw
 
-  case result of
-    Left e -> throwIO e
-    Right r -> launchBar eventMVar r
+  _ <- forkIO $ eventLoop takeEvent putAction
 
-launchBar :: MVar Event -> (ContextR, ContextRW) -> IO ()
-launchBar eventMVar (contextR, contextRW) = do
-  -- Event loop
-  _ <- forkIO . void $ runSandbarIO (eventLoop eventMVar) contextR contextRW
+  x11InfoR <- getX11InfoR
+  x11InfoRW <- getX11InfoRW config x11InfoR
+  let contextR = ContextR { Context.x11InfoR = x11InfoR }
+      contextRW = ContextRW { Context.config = config, Context.x11InfoRW = x11InfoRW }
 
-  -- Config file (~/.config/sandbar/config.yaml) watcher
-  _ <- forkIO $ FSN.withManager $ \mgr -> do
-    homeDir <- getHomeDirectory
-    _ <- FSN.watchDir mgr (homeDir </> configDirName) (const True) $ \e -> do
-      case e of
-        (FSN.Modified path _ _) -> do
-          when (path == homeDir </> configDirName </> configFileName) do
-            putStrLn $ path <> " has been modified."
-            putMVar eventMVar FileModified
-        _ -> return ()
-    forever $ threadDelay maxBound
+  _ <- runSandbarIO (launchBar takeAction) contextR contextRW
 
-  forever $ threadDelay maxBound
+  return ()
 
+launchBar :: IO Action -> SandbarIO ()
+launchBar takeAction = go where
+  go = do
+    -- Wait for the next action
+    action <- liftIO takeAction
 
-eventLoop :: MVar Event -> SandbarIO ()
-eventLoop eventMVar = do
-  -- Wait for the next event
-  event <- takeMVar eventMVar
-
-  liftIO . putStrLn $ "eventLoop: " <> show event
-  case event of
-    Draw -> do
-      drawSandbar
-    FileModified -> do
-      eContext <- getContextRW
-      pPrint eContext
-      forM_ eContext \context -> do
+    liftIO . putStrLn $ "action: " <> show action
+    case action of
+      UpdateContext config -> do
+        modify \old -> old { Context.config = config }
+        context <- getContextRW
+        pPrint context
         x11InfoR <- asks Context.x11InfoR
         x11InfoRW_old <- gets Context.x11InfoRW
         let display = X11InfoR.display x11InfoR
             window = X11InfoRW.window x11InfoRW_old
         liftIO $ destroyWindow display window
         put context
-        putMVar eventMVar Draw
+      Draw -> do
+        drawSandbar
+    go
 
-  eventLoop eventMVar
+eventLoop :: IO Event -> (Action -> IO ()) -> IO ()
+eventLoop takeEvent putAction = go where
+  go = do
+    -- Wait for the next event
+    event <- takeEvent
 
-getContextRW :: SandbarIO (Either ParseException ContextRW)
+    putStrLn $ "eventLoop: " <> show event
+    case event of
+      FileModified -> do
+        eConfig <- getConfig
+        case eConfig of
+          Right config -> do
+            putAction (UpdateContext config)
+            putAction Draw
+          Left e -> pPrint e
+        go
+
+watchConfigfile :: (Event -> IO ()) -> IO ()
+watchConfigfile putEvent = void $ do
+  FSN.withManager $ \mgr -> do
+    homeDir <- getHomeDirectory
+    _ <- FSN.watchDir mgr (homeDir </> configDirName) (const True) $ \e -> do
+      case e of
+        (FSN.Modified path _ _) -> do
+          when (path == homeDir </> configDirName </> configFileName) do
+            putStrLn $ path <> " has been modified."
+            putEvent FileModified
+        _ -> return ()
+    forever $ threadDelay maxBound
+
+initLoop :: IO Event -> IO Config
+initLoop takeEvent = go where
+  go = do
+    -- Wait for the next event
+    event <- takeEvent
+
+    putStrLn $ "initLoop: " <> show event
+    case event of
+      FileModified -> do
+        eConfig <- getConfig
+        case eConfig of
+          Right r -> return r
+          Left e -> do
+            pPrint e
+            go
+
+getContextRW :: SandbarIO ContextRW
 getContextRW = do
   x11InfoR <- asks Context.x11InfoR
-  eConfig <- liftIO getConfig
-  runExceptT $ do
-    config <- liftEither eConfig
-    x11InfoRW_new <- liftIO $ getX11InfoRW config x11InfoR
-    return $ ContextRW { Context.config = config, Context.x11InfoRW = x11InfoRW_new }
+  config <- gets Context.config
+  x11InfoRW_new <- liftIO $ getX11InfoRW config x11InfoR
+  return $ ContextRW { Context.config = config, Context.x11InfoRW = x11InfoRW_new }
 
 drawSandbar :: SandbarIO ()
 drawSandbar = do

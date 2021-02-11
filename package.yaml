@@ -29,6 +29,7 @@ dependencies:
   - yaml
   - mtl
   - pretty-simple
+  - aeson-diff
 
 default-extensions:
   - NoImplicitPrelude
