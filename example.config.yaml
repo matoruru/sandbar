@@ -1,0 +1,47 @@
+background_color: &background_color "#A00000"
+
+bar:
+  x_pos: 0
+  y_pos: 0
+  width: 1920
+  height: 30
+  background_color: *background_color
+
+  text:
+    - text_value: "Hello, it's matoruru. "
+      text_font: Iosevka Nerd Font Mono:pixelsize=30
+      text_color: black
+      text_background_color: *background_color
+      text_x_pos: 30
+      text_y_pos: 25
+
+    - text_value: "This is second text"
+      text_font: MonoLisa:pixelsize=20
+      text_color: pink3
+      text_background_color: *background_color
+      text_x_pos: 560
+      text_y_pos: 23
+
+    - text_value: "This is third text"
+      text_font: Fantasque Sans Mono:pixelsize=15
+      text_color: black
+      text_background_color: *background_color
+      text_x_pos: 1200
+      text_y_pos: 23
+
+  rectangle:
+    - rectangle_x_pos: 0
+      rectangle_y_pos: 0
+      rectangle_width: 345
+      rectangle_height: 37
+      rectangle_color: "#00FFFF"
+    - rectangle_x_pos: 500
+      rectangle_y_pos: 2
+      rectangle_width: 247
+      rectangle_height: 28
+      rectangle_color: "#00FFFF"
+    - rectangle_x_pos: 800
+      rectangle_y_pos: 10
+      rectangle_width: 144
+      rectangle_height: 16
+      rectangle_color: "#00FF00"
