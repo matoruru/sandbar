@@ -63,7 +63,7 @@ import qualified System.FSNotify as FSN (Event (Modified), watchDir, withManager
 import System.IO (putStr, putStrLn)
 import Graphics.X11.Xft (xftfont_max_advance_width, XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
 import AtomName (mkAtom, _CARDINAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _ATOM, _NET_WM_STRUT_PARTIAL, _NET_WM_WINDOW_TYPE_DOCK)
-import Data.Yaml (ToJSON(toJSON), ParseException, decodeFileEither)
+import Data.Yaml (ParseException, decodeFileEither)
 import Config (Config)
 import qualified Config
 import Core (runSandbarIO, SandbarIO)
@@ -226,7 +226,6 @@ drawSandbar = do
     ch = Config.bar_height bar
     background_color = Config.bar_background_color bar
     texts = Config.text bar
-    rectangles = Config.rectangle bar
 
   let
     disp = X11InfoR.display x11InfoR
@@ -270,20 +269,6 @@ drawSandbar = do
     liftIO do
       -- copyArea Display Pixmap Window GC Pix_x Pix_y (fi pixmapWidth) ch Win_x Win_y
       copyArea disp pixmap win gc 0 0 (fi pixmapWidth) ch (fi font_x_pos) 0
-
-  -- Rectangle
-  forM_ rectangles \rectangle -> do
-    let
-      rectangle_x_pos = Config.rectangle_x_pos rectangle
-      rectangle_y_pos = Config.rectangle_y_pos rectangle
-      rectangle_width = Config.rectangle_width rectangle
-      rectangle_height = Config.rectangle_height rectangle
-      rectangle_color = Config.rectangle_color rectangle
-    bgColor <- initColor rectangle_color
-    liftIO do
-      setForeground disp gc bgColor
-      fillRectangle disp win gc rectangle_x_pos rectangle_y_pos rectangle_width rectangle_height
-
 
   liftIO do
     sync disp False

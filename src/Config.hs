@@ -19,17 +19,6 @@ data Text = Text
 
 $(deriveJSON defaultOptions{ rejectUnknownFields = True } ''Text)
 
-data Rectangle = Rectangle
-  { rectangle_name :: String
-  , rectangle_x_pos :: Position
-  , rectangle_y_pos :: Position
-  , rectangle_width :: Word32
-  , rectangle_height :: Word32
-  , rectangle_color :: String
-  } deriving (Show, Eq)
-
-$(deriveJSON defaultOptions{ rejectUnknownFields = True } ''Rectangle)
-
 data Bar = Bar
   { bar_name :: String
   , bar_x_pos :: Position
@@ -38,7 +27,6 @@ data Bar = Bar
   , bar_height :: Word32
   , bar_background_color :: String
   , text :: [Text]
-  , rectangle :: [Rectangle]
   } deriving (Show, Eq)
 
 $(deriveJSON defaultOptions{ rejectUnknownFields = True } ''Bar)
