@@ -1,4 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Lib where
 
@@ -37,7 +38,7 @@ import Graphics.X11.Xlib.Extras
     propModeReplace,
   )
 import RIO
-  (flip, id, MonadThrow(throwM), Foldable(length), Applicative((<*>)), Eq((/=), (==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
+  (MonadThrow(throwM), Foldable(length), Applicative((<*>)), Eq((/=), (==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
     IO,
     Integral,
     MVar,
@@ -67,7 +68,6 @@ import Data.Yaml (ParseException, decodeFileEither)
 import Config (Config)
 import qualified Config
 import Core (runSandbarIO, SandbarIO)
-import Control.Monad.Except (runExceptT, MonadError(throwError, catchError))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
 import Data.Either (either, Either(Right, Left))
@@ -82,7 +82,7 @@ import Control.Concurrent (newMVar, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
 import Control.Monad ((=<<), when, forM_)
-import Control.Exception (SomeException, Exception(toException))
+import Control.Exception (try, SomeException, Exception(toException))
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"
@@ -352,13 +352,15 @@ xftDrawStringWithColorName xftDraw color xftFont x y str = do
     defaultColorName = X11InfoR.defaultColorName x11InfoR
     visual = X11InfoRW.visual x11InfoRW
   liftIO do
-    ( do
-      _ <- allocNamedColor display colormap color -- Throws an error if the color didn't exist
-      withXftColorName display visual colormap color (\c -> xftDrawString xftDraw c xftFont x y str)
-     ) `catchError` \e -> do
-       putStr $ "Error from xftDrawStringWithColorName(" <> color <> "): "
-       pPrint e
-       withXftColorName display visual colormap defaultColorName (\c -> xftDrawString xftDraw c xftFont x y str)
+     eResult <- try do
+       _ <- allocNamedColor display colormap color -- Throws an error if the color didn't exist
+       withXftColorName display visual colormap color (\c -> xftDrawString xftDraw c xftFont x y str)
+     case eResult of
+       Right _ -> return ()
+       Left (e :: SomeException) -> do
+         putStr $ "Error from xftDrawStringWithColorName(" <> color <> "): "
+         pPrint e
+         withXftColorName display visual colormap defaultColorName (\c -> xftDrawString xftDraw c xftFont x y str)
 
 mkUnmanagedWindow ::
   Display ->
@@ -384,11 +386,13 @@ initColor color = do
     colormap = X11InfoR.colormap x11InfoR
     defaultColor = X11InfoR.defaultColor x11InfoR
   liftIO do
-    ( color_pixel . fst <$> allocNamedColor display colormap color
-     ) `catchError` \e -> do
-       putStr $ "Error from initColor(" <> color <> "): "
-       pPrint e
-       return defaultColor
+    eResult <- try $ color_pixel . fst <$> allocNamedColor display colormap color
+    case eResult of
+      Right result -> return result
+      Left (e :: SomeException) -> do
+        putStr $ "Error from initColor(" <> color <> "): "
+        pPrint e
+        return defaultColor
 
 getStaticStrutValues :: Num a => a -> a -> a -> a -> [a]
 getStaticStrutValues cx cy cw ch =
