@@ -37,7 +37,7 @@ import Graphics.X11.Xlib.Extras
     propModeReplace,
   )
 import RIO
-  (id, Foldable(length), Applicative((<*>)), Eq((==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
+  (flip, id, MonadThrow(throwM), Foldable(length), Applicative((<*>)), Eq((/=), (==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
     IO,
     Integral,
     MVar,
@@ -67,7 +67,7 @@ import Data.Yaml (ParseException, decodeFileEither)
 import Config (Config)
 import qualified Config
 import Core (runSandbarIO, SandbarIO)
-import Control.Monad.Except (runExceptT, MonadError(catchError))
+import Control.Monad.Except (runExceptT, MonadError(throwError, catchError))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
 import Data.Either (either, Either(Right, Left))
@@ -81,8 +81,8 @@ import Control.Monad.Reader (asks)
 import Control.Concurrent (newMVar, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Context (ContextR(ContextR), ContextRW(ContextRW))
-import Control.Monad (Monad((>>=)), (=<<), when, forM_)
-import Control.Exception (try, SomeException, Exception)
+import Control.Monad ((=<<), when, forM_)
+import Control.Exception (SomeException, Exception(toException))
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"
@@ -90,10 +90,11 @@ configDirName = ".config/sandbar"
 configFileName :: FilePath
 configFileName = "config.yaml"
 
-getConfig :: IO (Either ParseException Config)
+getConfig :: IO (Either SomeException Config)
 getConfig = do
   homeDir <- getHomeDirectory
-  decodeFileEither $ homeDir </> configDirName </> configFileName
+  result <- decodeFileEither $ homeDir </> configDirName </> configFileName
+  return $ either (throwM . toException) return result
 
 data Action
   = UpdateContext Config
@@ -105,10 +106,7 @@ data Event
   deriving (Show)
 
 mkMVarOperations :: MVar a -> IO (a -> IO (), IO a)
-mkMVarOperations mVar = do
-  let p = putMVar mVar
-      t = takeMVar mVar
-  return (p, t)
+mkMVarOperations mVar = return (putMVar mVar, takeMVar mVar)
 
 init :: IO ()
 init = do
@@ -121,8 +119,8 @@ init = do
   eConfig <- getConfig
 
   -- Block until decoding the config file completes.
-  config <- case eConfig of
-    Right c -> return c
+  config <- case validateConfig =<< eConfig of
+    Right validated -> return validated
     Left e -> do
       putStrLn "Error found. Please fix the config file:"
       pPrint e
@@ -173,9 +171,9 @@ eventLoop takeEvent putAction = go where
     case event of
       FileModified -> do
         eConfig <- getConfig
-        case eConfig of
-          Right config -> do
-            putAction (UpdateContext config)
+        case validateConfig =<< eConfig of
+          Right validated -> do
+            putAction (UpdateContext validated)
             putAction Draw
           Left e -> pPrint e
         go
@@ -186,8 +184,17 @@ data ValidationError
 
 instance Exception ValidationError
 
-validateConfig :: Config -> Either ValidationError Config
-validateConfig _ = Left $ NameFieldShouldBeUnique "failed"
+validateConfig :: Config -> Either SomeException Config
+validateConfig config = do
+  let bar = Config.bar config
+      bar_name = Config.bar_name bar
+
+  if bar_name /= ""
+    then return config
+    else throwM $ NameFieldShouldBeUnique "failed"
+
+toSomeException :: (Monad m, MonadThrow m) => Either ParseException a -> m a
+toSomeException = either throwM return
 
 watchConfigfile :: (Event -> IO ()) -> IO ()
 watchConfigfile putEvent = void $ do
@@ -212,17 +219,11 @@ initLoop takeEvent = go where
     case event of
       FileModified -> do
         eConfig <- getConfig
-        case eConfig of
-          Left e -> do
+        case validateConfig =<< eConfig of
+          (Right validated) -> return validated
+          (Left e) -> do
             pPrint e
             go
-          Right config -> do
-            let eValidated = validateConfig config
-            case eValidated of
-              Left e -> do
-                pPrint e
-                go
-              Right validated -> return validated
 
 getContextRW :: SandbarIO ContextRW
 getContextRW = do
