@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 6575b0de0f626345156abc600c38ffbf364ecfc7e063569c5431e9ebd2804c36
+-- hash: 9a0fb2ef313c53396344b6a7ac2aeb39292310d9d6d697bf9a63bfb06975b541
 
 name:           sandbar
 version:        0.1.0.0
@@ -27,14 +27,16 @@ source-repository head
 
 library
   exposed-modules:
-      AtomName
-      Config
-      Context
-      Core
-      Lib
-      Types
-      X11InfoR
-      X11InfoRW
+      Sandbar.AtomName
+      Sandbar.Config
+      Sandbar.Context
+      Sandbar.Core
+      Sandbar.Lib
+      Sandbar.Types
+      Sandbar.X11InfoR
+      Sandbar.X11InfoRW
+      WOM.Types.Window
+      WOM.Window
   other-modules:
       Paths_sandbar
   hs-source-dirs:

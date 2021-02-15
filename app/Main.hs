@@ -1,6 +1,6 @@
 module Main where
 
-import Lib (init)
+import Sandbar.Lib (init)
 import RIO (IO)
 
 main :: IO ()

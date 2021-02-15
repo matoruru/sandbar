@@ -1,4 +1,4 @@
-module AtomName where
+module Sandbar.AtomName where
 
 import RIO (Bool(False), IO, String)
 import Graphics.X11 (internAtom, Display)

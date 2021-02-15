@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Config where
+module Sandbar.Config where
 
 import Data.Aeson.TH (Options(rejectUnknownFields), defaultOptions, deriveJSON)
 import RIO (Eq, Bool(True), Integer, String, Show)
@@ -26,7 +26,7 @@ data Bar = Bar
   , bar_width :: Word32
   , bar_height :: Word32
   , bar_background_color :: String
-  , text :: [Text]
+  , texts :: [Text]
   } deriving (Show, Eq)
 
 $(deriveJSON defaultOptions{ rejectUnknownFields = True } ''Bar)

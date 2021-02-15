@@ -1,4 +1,4 @@
-module Types where
+module Sandbar.Types where
 
 import RIO (String)
 

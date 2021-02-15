@@ -1,8 +1,8 @@
-module X11InfoR where
+module Sandbar.X11InfoR where
 
 import RIO (Show)
 import Graphics.X11 (Pixel, Colormap, ScreenNumber, Screen, Display, Window)
-import Types (ColorName)
+import Sandbar.Types (ColorName)
 
 data X11InfoR = X11InfoR
   { display :: Display

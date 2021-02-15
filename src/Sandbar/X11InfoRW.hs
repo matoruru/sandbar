@@ -1,4 +1,4 @@
-module X11InfoRW where
+module Sandbar.X11InfoRW where
 
 import RIO (Show)
 import Graphics.X11 (GC, Visual, Window)

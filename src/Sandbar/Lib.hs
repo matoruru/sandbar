@@ -1,7 +1,8 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 
-module Lib where
+module Sandbar.Lib where
 
 import Data.Bits (Bits ((.|.)))
 import Graphics.X11
@@ -61,28 +62,29 @@ import RIO
 import RIO.Directory (getHomeDirectory)
 import RIO.FilePath ((</>), FilePath)
 import qualified System.FSNotify as FSN (Event (Modified), watchDir, withManager)
-import System.IO (putStr, putStrLn)
+import System.IO (print, putStr, putStrLn)
 import Graphics.X11.Xft (xftfont_max_advance_width, XftFont, XftDraw, withXftColorName, xftFontOpen, xftDrawCreate, xftDrawString)
-import AtomName (mkAtom, _CARDINAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _ATOM, _NET_WM_STRUT_PARTIAL, _NET_WM_WINDOW_TYPE_DOCK)
+import Sandbar.AtomName (mkAtom, _CARDINAL, _NET_WM_STRUT, _NET_WM_WINDOW_TYPE, _ATOM, _NET_WM_STRUT_PARTIAL, _NET_WM_WINDOW_TYPE_DOCK)
 import Data.Yaml (ParseException, decodeFileEither)
-import Config (Config)
-import qualified Config
-import Core (runSandbarIO, SandbarIO)
+import Sandbar.Config (Config)
+import qualified Sandbar.Config as Config
+import Sandbar.Core (runSandbarIO, SandbarIO)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
 import Data.Either (either, Either(Right, Left))
-import qualified Context
-import X11InfoRW (X11InfoRW(X11InfoRW))
-import qualified X11InfoRW
-import X11InfoR (X11InfoR(X11InfoR))
-import qualified X11InfoR
+import qualified Sandbar.Context as Context
+import Sandbar.X11InfoRW (X11InfoRW(X11InfoRW))
+import qualified Sandbar.X11InfoRW as X11InfoRW
+import Sandbar.X11InfoR (X11InfoR(X11InfoR))
+import qualified Sandbar.X11InfoR as X11InfoR
 import Control.Monad.State (modify, MonadState(put), gets)
 import Control.Monad.Reader (asks)
 import Control.Concurrent (newMVar, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
-import Context (ContextR(ContextR), ContextRW(ContextRW))
+import Sandbar.Context (ContextR(ContextR), ContextRW(ContextRW))
 import Control.Monad ((=<<), when, forM_)
 import Control.Exception (try, SomeException, Exception(toException))
+import Data.List (sort, filter, null, group)
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"
@@ -123,7 +125,7 @@ init = do
     Right validated -> return validated
     Left e -> do
       putStrLn "Error found. Please fix the config file:"
-      pPrint e
+      print e
       initLoop takeEvent
 
   (putAction, takeAction) <- mkMVarOperations =<< newMVar Draw
@@ -175,23 +177,36 @@ eventLoop takeEvent putAction = go where
           Right validated -> do
             putAction (UpdateContext validated)
             putAction Draw
-          Left e -> pPrint e
+          Left e -> print e
         go
 
 data ValidationError
   = NameFieldShouldBeUnique String
-  deriving Show
+
+instance Show ValidationError where
+  show err = "Validation error: " <> errorMessages err
+
+errorMessages :: ValidationError -> String
+errorMessages = \case
+  NameFieldShouldBeUnique names -> "These duplicated names detected: " <> names
 
 instance Exception ValidationError
 
 validateConfig :: Config -> Either SomeException Config
 validateConfig config = do
-  let bar = Config.bar config
-      bar_name = Config.bar_name bar
-
-  if bar_name /= ""
-    then return config
-    else throwM $ NameFieldShouldBeUnique "failed"
+  nameFieldShouldBeUnique
+  where
+    bar = Config.bar config
+    bar_name = Config.bar_name bar
+    texts = Config.texts bar
+    nameFieldShouldBeUnique = do
+      let text_names = Config.text_name <$> texts
+          names = bar_name : text_names
+          grouped = group . sort $ names
+          nonUniques = filter (\nameG -> length nameG /= 1) grouped
+      if null nonUniques
+        then return config
+        else throwM $ NameFieldShouldBeUnique $ show nonUniques
 
 toSomeException :: (Monad m, MonadThrow m) => Either ParseException a -> m a
 toSomeException = either throwM return
@@ -222,7 +237,7 @@ initLoop takeEvent = go where
         case validateConfig =<< eConfig of
           (Right validated) -> return validated
           (Left e) -> do
-            pPrint e
+            print e
             go
 
 getContextRW :: SandbarIO ContextRW
@@ -242,7 +257,7 @@ drawSandbar = do
     bar = Config.bar config
     ch = Config.bar_height bar
     background_color = Config.bar_background_color bar
-    texts = Config.text bar
+    texts = Config.texts bar
 
   let
     disp = X11InfoR.display x11InfoR
@@ -359,7 +374,7 @@ xftDrawStringWithColorName xftDraw color xftFont x y str = do
        Right _ -> return ()
        Left (e :: SomeException) -> do
          putStr $ "Error from xftDrawStringWithColorName(" <> color <> "): "
-         pPrint e
+         print e
          withXftColorName display visual colormap defaultColorName (\c -> xftDrawString xftDraw c xftFont x y str)
 
 mkUnmanagedWindow ::
@@ -391,7 +406,7 @@ initColor color = do
       Right result -> return result
       Left (e :: SomeException) -> do
         putStr $ "Error from initColor(" <> color <> "): "
-        pPrint e
+        print e
         return defaultColor
 
 getStaticStrutValues :: Num a => a -> a -> a -> a -> [a]

@@ -1,9 +1,9 @@
-module Context where
+module Sandbar.Context where
 
 import RIO (Show)
-import Config (Config)
-import X11InfoRW (X11InfoRW)
-import X11InfoR (X11InfoR)
+import Sandbar.Config (Config)
+import Sandbar.X11InfoRW (X11InfoRW)
+import Sandbar.X11InfoR (X11InfoR)
 
 data ContextRW = ContextRW
   { config :: Config
