@@ -16,11 +16,12 @@
 
 1. Create the container with shared volumes.
 
-    ```bash
-    $ docker create -e DISPLAY=host.docker.internal:0 \
-        -v (PWD):/app/ \
-        -v (PWD)/example.config.yaml:/root/.config/sandbar/config.yaml \
-        --name sandbar -it sandbar
+    ```fish
+    $ # fish
+    $ docker create -e DISPLAY=host.docker.internal:0 -v (PWD):/app/ --name sandbar -it sandbar
+
+    $ # bash
+    $ docker create -e DISPLAY=host.docker.internal:0 -v $(PWD):/app/ --name sandbar -it sandbar
     ```
 
 1. Start the container.
