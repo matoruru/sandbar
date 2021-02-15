@@ -29,7 +29,7 @@
     $ docker start sandbar
     ```
 
-1. Start the container.
+1. Enter in the container.
 
     ```bash
     $ docker exec -it sandbar bash
