@@ -39,7 +39,7 @@ import Graphics.X11.Xlib.Extras
     propModeReplace,
   )
 import RIO
-  (MonadThrow(throwM), Foldable(length), Applicative((<*>)), Eq((/=), (==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
+  (unlessM, Monoid(mempty), whenM, MonadThrow(throwM), Foldable(length), Applicative((<*>)), Eq((/=), (==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
     IO,
     Integral,
     MVar,
@@ -59,7 +59,7 @@ import RIO
     (.),
     (<$>),
   )
-import RIO.Directory (getHomeDirectory)
+import RIO.Directory (doesPathExist, createDirectory, getHomeDirectory)
 import RIO.FilePath ((</>), FilePath)
 import qualified System.FSNotify as FSN (Event (Modified), watchDir, withManager)
 import System.IO (print, putStr, putStrLn)
@@ -82,9 +82,10 @@ import Control.Monad.Reader (asks)
 import Control.Concurrent (newMVar, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Sandbar.Context (ContextR(ContextR), ContextRW(ContextRW))
-import Control.Monad ((=<<), when, forM_)
+import Control.Monad (Monad((>>=)), (=<<), when, forM_)
 import Control.Exception (try, SomeException, Exception(toException))
 import Data.List (sort, filter, null, group)
+import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"
@@ -98,6 +99,9 @@ getConfig = do
   result <- decodeFileEither $ homeDir </> configDirName </> configFileName
   return $ either (throwM . toException) return result
 
+class Exception e => SandbarError e where
+  toMessage :: e -> String
+
 data Action
   = UpdateContext Config
   | Draw
@@ -107,39 +111,59 @@ data Event
   = FileModified
   deriving (Show)
 
+data ApplicationError
+  = ConfigDirectoryDoesntExist String
+
+instance Exception ApplicationError
+
+instance Show ApplicationError where
+  show err = "Application error: " <> toMessage err
+
+instance SandbarError ApplicationError where
+  toMessage = \case
+    ConfigDirectoryDoesntExist dirname -> "The sandbar config directory (" <> dirname <> ") doesn't exist. Please restart after creating it."
+
 mkMVarOperations :: MVar a -> IO (a -> IO (), IO a)
 mkMVarOperations mVar = return (putMVar mVar, takeMVar mVar)
 
 init :: IO ()
 init = do
-  (putEvent, takeEvent) <- mkMVarOperations =<< newEmptyMVar
+  result <- runExceptT do
+    homeDir <- liftIO getHomeDirectory
 
-  -- Start the config file (~/.config/sandbar/config.yaml) watcher.
-  _ <- forkIO $ watchConfigfile putEvent
+    -- Check if the directory exists and if not exit.
+    unlessM (doesPathExist $ homeDir </> configDirName) do
+      throwM $ ConfigDirectoryDoesntExist (homeDir </> configDirName)
 
-  -- Try to read and decode the config file.
-  eConfig <- getConfig
+    liftIO do
+      (putEvent, takeEvent) <- mkMVarOperations =<< newEmptyMVar
 
-  -- Block until decoding the config file completes.
-  config <- case validateConfig =<< eConfig of
-    Right validated -> return validated
-    Left e -> do
-      putStrLn "Error found. Please fix the config file:"
-      print e
-      initLoop takeEvent
+      -- Start the config file (~/.config/sandbar/config.yaml) watcher.
+      _ <- forkIO $ watchConfigfile putEvent
 
-  (putAction, takeAction) <- mkMVarOperations =<< newMVar Draw
+      -- Try to read and decode the config file.
+      eConfig <- getConfig
 
-  _ <- forkIO $ eventLoop takeEvent putAction
+      -- Block until decoding the config file completes.
+      config <- case validateConfig =<< eConfig of
+        Right validated -> return validated
+        Left e -> do
+          putStrLn "Error found. Please fix the config file:"
+          print e
+          initLoop takeEvent
 
-  x11InfoR <- getX11InfoR
-  x11InfoRW <- getX11InfoRW config x11InfoR
-  let contextR = ContextR { Context.x11InfoR = x11InfoR }
-      contextRW = ContextRW { Context.config = config, Context.x11InfoRW = x11InfoRW }
+      (putAction, takeAction) <- mkMVarOperations =<< newMVar Draw
 
-  _ <- runSandbarIO (launchBar takeAction) contextR contextRW
+      _ <- forkIO $ eventLoop takeEvent putAction
 
-  return ()
+      x11InfoR <- getX11InfoR
+      x11InfoRW <- getX11InfoRW config x11InfoR
+      let contextR = ContextR { Context.x11InfoR = x11InfoR }
+          contextRW = ContextRW { Context.config = config, Context.x11InfoRW = x11InfoRW }
+
+      runSandbarIO (launchBar takeAction) contextR contextRW
+
+  pPrint (result :: Either ApplicationError ((), ContextRW))
 
 launchBar :: IO Action -> SandbarIO ()
 launchBar takeAction = go where
@@ -183,14 +207,14 @@ eventLoop takeEvent putAction = go where
 data ValidationError
   = NameFieldShouldBeUnique String
 
-instance Show ValidationError where
-  show err = "Validation error: " <> errorMessages err
-
-errorMessages :: ValidationError -> String
-errorMessages = \case
-  NameFieldShouldBeUnique names -> "These duplicated names detected: " <> names
-
 instance Exception ValidationError
+
+instance Show ValidationError where
+  show err = "Validation error: " <> toMessage err
+
+instance SandbarError ValidationError where
+  toMessage = \case
+    NameFieldShouldBeUnique names -> "These duplicated names detected: " <> names
 
 validateConfig :: Config -> Either SomeException Config
 validateConfig config = do
