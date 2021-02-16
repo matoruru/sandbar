@@ -39,7 +39,7 @@ import Graphics.X11.Xlib.Extras
     propModeReplace,
   )
 import RIO
-  (unlessM, Monoid(mempty), whenM, MonadThrow(throwM), Foldable(length), Applicative((<*>)), Eq((/=), (==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
+  (unlessM, Foldable(length), Applicative((<*>)), Eq((/=), (==)), Show(show),  Bounded(maxBound), Semigroup((<>)), Integer,  Bool (False, True),
     IO,
     Integral,
     MVar,
@@ -59,7 +59,7 @@ import RIO
     (.),
     (<$>),
   )
-import RIO.Directory (doesPathExist, createDirectory, getHomeDirectory)
+import RIO.Directory (doesPathExist, getHomeDirectory)
 import RIO.FilePath ((</>), FilePath)
 import qualified System.FSNotify as FSN (Event (Modified), watchDir, withManager)
 import System.IO (print, putStr, putStrLn)
@@ -82,10 +82,10 @@ import Control.Monad.Reader (asks)
 import Control.Concurrent (newMVar, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Sandbar.Context (ContextR(ContextR), ContextRW(ContextRW))
-import Control.Monad (Monad((>>=)), (=<<), when, forM_)
-import Control.Exception (try, SomeException, Exception(toException))
+import Control.Monad ((=<<), when, forM_)
 import Data.List (sort, filter, null, group)
-import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
+import Control.Monad.Except (runExceptT)
+import Control.Exception.Safe (SomeException, try, toException,  Exception, throw, MonadThrow)
 
 configDirName :: FilePath
 configDirName = ".config/sandbar"
@@ -97,7 +97,7 @@ getConfig :: IO (Either SomeException Config)
 getConfig = do
   homeDir <- getHomeDirectory
   result <- decodeFileEither $ homeDir </> configDirName </> configFileName
-  return $ either (throwM . toException) return result
+  return $ either (throw . toException) return result
 
 class Exception e => SandbarError e where
   toMessage :: e -> String
@@ -133,7 +133,7 @@ init = do
 
     -- Check if the directory exists and if not exit.
     unlessM (doesPathExist $ homeDir </> configDirName) do
-      throwM $ ConfigDirectoryDoesntExist (homeDir </> configDirName)
+      throw $ ConfigDirectoryDoesntExist (homeDir </> configDirName)
 
     liftIO do
       (putEvent, takeEvent) <- mkMVarOperations =<< newEmptyMVar
@@ -230,10 +230,10 @@ validateConfig config = do
           nonUniques = filter (\nameG -> length nameG /= 1) grouped
       if null nonUniques
         then return config
-        else throwM $ NameFieldShouldBeUnique $ show nonUniques
+        else throw $ NameFieldShouldBeUnique $ show nonUniques
 
 toSomeException :: (Monad m, MonadThrow m) => Either ParseException a -> m a
-toSomeException = either throwM return
+toSomeException = either throw return
 
 watchConfigfile :: (Event -> IO ()) -> IO ()
 watchConfigfile putEvent = void $ do

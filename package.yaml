@@ -30,6 +30,7 @@ dependencies:
   - mtl
   - pretty-simple
   - aeson
+  - safe-exceptions
 
 default-extensions:
   - NoImplicitPrelude

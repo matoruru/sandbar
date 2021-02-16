@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 9a0fb2ef313c53396344b6a7ac2aeb39292310d9d6d697bf9a63bfb06975b541
+-- hash: f9a9edd96cbbff16127c17057ac20a632f092f989791a1089108e54b5394db6d
 
 name:           sandbar
 version:        0.1.0.0
@@ -52,6 +52,7 @@ library
     , mtl
     , pretty-simple
     , rio
+    , safe-exceptions
     , unix
     , yaml
   default-language: Haskell2010
@@ -73,6 +74,7 @@ executable sandbar-exe
     , mtl
     , pretty-simple
     , rio
+    , safe-exceptions
     , sandbar
     , unix
     , yaml
@@ -96,6 +98,7 @@ test-suite sandbar-test
     , mtl
     , pretty-simple
     , rio
+    , safe-exceptions
     , sandbar
     , unix
     , yaml
